@@ -1,30 +1,31 @@
 export interface PluginSettings {
-  clientId: string;              // user's own GitHub OAuth App Client ID (required to connect)
-  githubToken: string;           // OAuth access token (stored locally)
-  githubUsername: string;        // Authenticated GitHub username
-  repoName: string;              // e.g. "obsidian-my-vault"
-  autoSync: boolean;             // auto-sync on file changes
-  syncIntervalMs: number;        // debounce window
-  excludePatterns: string[];     // glob patterns to ignore (e.g. ".obsidian/workspace")
-  lastSyncTime: number;          // unix timestamp of last successful sync
-  commitMessageTemplate: string; // e.g. "sync: {{datetime}}"
+  clientId: string;
+  githubToken: string;
+  githubUsername: string;
+  repoOwner: string;
+  repoName: string;
+  branch: string;
+  pullOnOpen: boolean;
+  excludePatterns: string[];
+  lastPullTime: number;
+  lastPushTime: number;
+  commitMessageTemplate: string;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   clientId: "",
   githubToken: "",
   githubUsername: "",
-  repoName: "",
-  autoSync: true,
-  syncIntervalMs: 3000,
+  repoOwner: "timurspace",
+  repoName: "carmina-et-sententiae",
+  branch: "main",
+  pullOnOpen: true,
   excludePatterns: [
-    // Never sync the .obsidian config dir: plugin code, themes, and device-local
-    // state differ per device (and between desktop/mobile) and cause conflicts.
-    // Each device manages its own plugins/config; only notes & attachments sync.
     ".obsidian/*",
   ],
-  lastSyncTime: 0,
-  commitMessageTemplate: "sync: {{datetime}}",
+  lastPullTime: 0,
+  lastPushTime: 0,
+  commitMessageTemplate: "obsidian: {{datetime}}",
 };
 
 export interface DeviceFlowResponse {
@@ -60,13 +61,21 @@ export type SyncStatus =
 
 export interface ConflictFile {
   path: string;
-  ours: string;   // local file content
-  theirs: string; // remote file content
+  ours: string;
+  theirs: string;
 }
 
 export interface SyncResult {
   success: boolean;
   conflictFiles: ConflictFile[];
   error?: string;
-  logs?: string[];  // step-by-step diagnostic trace (shown on mobile where no console is reachable)
+  logs?: string[];
+}
+
+export interface GitOperationResult {
+  success: boolean;
+  changed: boolean;
+  message: string;
+  error?: string;
+  logs: string[];
 }

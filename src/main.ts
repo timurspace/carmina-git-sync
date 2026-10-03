@@ -1,105 +1,75 @@
-import { Plugin, Notice, TFile, TAbstractFile, Modal } from "obsidian";
-import { PluginSettings, DEFAULT_SETTINGS, SyncStatus, ConflictFile } from "./types";
+import { Modal, Notice, Plugin } from "obsidian";
+import { DEFAULT_SETTINGS, GitOperationResult, PluginSettings, SyncStatus } from "./types";
 import { MultiSyncSettingsTab } from "./ui/settings-tab";
 import { StatusBarItem } from "./ui/status-bar";
-import { ConflictModal } from "./ui/conflict-modal";
 import { GitSync } from "./sync/git-sync";
-import { SyncQueue } from "./sync/queue";
-import { repoExists, createRepo, vaultNameToRepoName } from "./github/api";
+import { repoExists } from "./github/api";
 
-export default class MultiSyncPlugin extends Plugin {
+export default class CarminaGitSyncPlugin extends Plugin {
   settings!: PluginSettings;
   private statusBar!: StatusBarItem;
   private gitSync: GitSync | null = null;
-  private syncQueue: SyncQueue | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
 
     this.statusBar = new StatusBarItem(this);
-    this.statusBar.onClick(() => this.triggerManualSync());
+    this.statusBar.onClick(() => void this.triggerPull());
 
     this.addSettingTab(new MultiSyncSettingsTab(this.app, this));
 
-    // Keyboard command
     this.addCommand({
-      id: "sync-now",
-      name: "Sync vault now",
-      callback: () => this.triggerManualSync(),
+      id: "pull-from-github",
+      name: "Pull canonical state from GitHub",
+      callback: () => void this.triggerPull(),
     });
 
-    // Boot sync engine if already connected
-    if (
-      this.settings.githubToken &&
-      this.settings.githubUsername &&
-      this.settings.repoName
-    ) {
+    this.addCommand({
+      id: "push-local-changes",
+      name: "Push local changes to GitHub",
+      callback: () => void this.triggerPush(),
+    });
+
+    this.addCommand({
+      id: "adopt-github-canonical",
+      name: "Adopt GitHub as canonical (destructive)",
+      callback: () => void this.adoptGithubAsCanonical(),
+    });
+
+    if (this.isConfigured()) {
       await this.bootSyncEngine();
     }
 
-    // Pull on open — wait for workspace to be ready
-    this.app.workspace.onLayoutReady(async () => {
-      if (this.gitSync) {
-        this.setStatus("pulling");
-        try {
-          const conflicts = await this.gitSync.pull();
-          if (conflicts.length > 0) {
-            this.setStatus("conflict");
-            this.showConflictModal(conflicts);
-          } else {
-            this.setStatus("idle");
-          }
-        } catch {
-          // Pull errors on open are non-fatal (e.g. offline) — just show error state
-          this.setStatus("error", "Pull failed on open");
-        }
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.pullOnOpen && this.gitSync) {
+        void this.triggerPull(false);
       }
     });
-
-    // Watch file changes for auto-sync
-    this.registerEvent(
-      this.app.vault.on("modify", (file: TAbstractFile) => {
-        if (!(file instanceof TFile)) return;
-        if (!this.syncQueue || !this.settings.autoSync) return;
-        if (this.isExcluded(file.path)) return;
-        this.syncQueue.enqueue(file.path);
-      })
-    );
-
-    this.registerEvent(
-      this.app.vault.on("create", (file: TAbstractFile) => {
-        if (!(file instanceof TFile)) return;
-        if (!this.syncQueue || !this.settings.autoSync) return;
-        if (this.isExcluded(file.path)) return;
-        this.syncQueue.enqueue(file.path);
-      })
-    );
-
-    this.registerEvent(
-      this.app.vault.on("delete", (file: TAbstractFile) => {
-        if (!(file instanceof TFile)) return;
-        if (!this.syncQueue || !this.settings.autoSync) return;
-        this.syncQueue.enqueue(file.path);
-      })
-    );
-
-    this.registerEvent(
-      this.app.vault.on("rename", (_file: TAbstractFile, oldPath: string) => {
-        if (!this.syncQueue || !this.settings.autoSync) return;
-        this.syncQueue.enqueue(oldPath);
-      })
-    );
   }
 
-  async onunload(): Promise<void> {
-    // Flush pending changes on close
-    if (this.syncQueue) {
-      await this.syncQueue.flushNow();
-    }
+  private isConfigured(): boolean {
+    return Boolean(
+      this.settings.githubToken &&
+      this.settings.githubUsername &&
+      this.settings.repoOwner &&
+      this.settings.repoName &&
+      this.settings.branch
+    );
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const loaded = (await this.loadData()) ?? {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+
+    // Migration from upstream settings: preserve an explicitly selected repo when
+    // possible, but never restore upstream auto-push behavior.
+    if (!this.settings.repoOwner) {
+      this.settings.repoOwner =
+        (loaded as { githubUsername?: string }).githubUsername ||
+        DEFAULT_SETTINGS.repoOwner;
+    }
+    if (!this.settings.branch) this.settings.branch = "main";
+    this.settings.pullOnOpen = this.settings.pullOnOpen !== false;
   }
 
   async saveSettings(): Promise<void> {
@@ -110,71 +80,49 @@ export default class MultiSyncPlugin extends Plugin {
     this.statusBar.set(status, detail);
   }
 
-  /**
-   * Called after the user connects their GitHub account.
-   * Determines whether to clone (existing repo) or init+push (new repo).
-   */
-  async initializeRepo(token: string, username: string): Promise<void> {
-    this.setStatus("connecting");
-
-    const vaultName = this.app.vault.getName();
-    // Prefer the user-supplied repo name; fall back to a slug of the vault name.
-    const repoName = this.settings.repoName || vaultNameToRepoName(vaultName);
-    this.settings.repoName = repoName;
-
-    const adapter = this.app.vault.adapter;
-    // Obsidian exposes basePath on FileSystemAdapter (desktop). On mobile the vault
-    // root is the adapter itself, so we fall back to an empty string which causes
-    // isomorphic-git to use relative paths from the adapter root.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const vaultPath: string = (adapter as any).basePath ?? "";
-
-    const sync = new GitSync(adapter, vaultPath, token, username, repoName, (p) =>
-      this.isExcluded(p)
-    );
-
-    const exists      = await repoExists(token, username, repoName);
-    const alreadyInit = await sync.isInitialized();
-
-    const allFiles = () =>
-      this.app.vault
-        .getFiles()
-        .map((f) => f.path)
-        .filter((p) => !this.isExcluded(p));
-
-    if (!exists) {
-      // Brand-new vault — create repo and push everything
-      await createRepo(token, repoName, `Obsidian vault: ${vaultName}`);
-      await sync.initAndPush(allFiles());
-      new Notice(`Created private repo: ${username}/${repoName}`);
-    } else if (!alreadyInit) {
-      // Repo exists remotely, this is a new device — clone it.
-      // clone() returns false when the remote is empty (a previous initAndPush
-      // created the repo but never pushed any commits). In that case fall back
-      // to initAndPush so we establish the local branch and push.
-      const cloneHadCommits = await sync.clone();
-      if (!cloneHadCommits) {
-        await sync.initAndPush(allFiles());
-        new Notice(`Initialised repo: ${username}/${repoName}`);
-      } else {
-        new Notice(`Cloned repo: ${username}/${repoName}`);
-      }
-    } else {
-      // Already initialised locally — ensure remote URL is current, then reconnect.
-      // Also handles the case where a previous push was interrupted (local branch
-      // exists but remote is empty): ensureLocalBranch will push on next sync.
-      new Notice(`Reconnected to: ${username}/${repoName}`);
+  async connectConfiguredRepo(): Promise<GitOperationResult> {
+    if (!this.settings.githubToken || !this.settings.githubUsername) {
+      return {
+        success: false,
+        changed: false,
+        message: "GitHub account is not connected.",
+        error: "Connect GitHub first.",
+        logs: [],
+      };
     }
 
-    this.settings.lastSyncTime = Date.now();
-    await this.saveSettings();
+    const exists = await repoExists(
+      this.settings.githubToken,
+      this.settings.repoOwner,
+      this.settings.repoName
+    );
+    if (!exists) {
+      return {
+        success: false,
+        changed: false,
+        message: "Configured repository was not found or is not accessible.",
+        error: `${this.settings.repoOwner}/${this.settings.repoName}`,
+        logs: [],
+      };
+    }
+
     await this.bootSyncEngine();
-    this.setStatus("idle");
+    return this.gitSync!.attachExistingRemote();
   }
 
   async bootSyncEngine(): Promise<void> {
-    const { githubToken, githubUsername, repoName } = this.settings;
-    if (!githubToken || !githubUsername || !repoName) return;
+    const {
+      githubToken,
+      githubUsername,
+      repoOwner,
+      repoName,
+      branch,
+    } = this.settings;
+
+    if (!githubToken || !githubUsername || !repoOwner || !repoName || !branch) {
+      this.gitSync = null;
+      return;
+    }
 
     const adapter = this.app.vault.adapter;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,88 +133,93 @@ export default class MultiSyncPlugin extends Plugin {
       vaultPath,
       githubToken,
       githubUsername,
+      repoOwner,
       repoName,
-      (p) => this.isExcluded(p)
+      branch,
+      (path) => this.isExcluded(path)
     );
-
-    this.syncQueue = new SyncQueue(this.gitSync, (status, detail) => {
-      this.setStatus(status, detail);
-      if (status === "idle") {
-        this.settings.lastSyncTime = Date.now();
-        this.saveSettings();
-      }
-    });
   }
 
-  async triggerManualSync(): Promise<void> {
+  async triggerPull(showSuccessNotice = true): Promise<void> {
     if (!this.gitSync) {
-      new Notice(
-        "MultiSync: not connected. Please connect your GitHub account in settings."
-      );
+      new Notice("Carmina Git Sync: connect and apply repository settings first.");
       return;
     }
 
     this.setStatus("pulling");
+    const result = await this.gitSync.pullCanonical();
+    await this.finishOperation("pull", result, showSuccessNotice);
+  }
+
+  async triggerPush(): Promise<void> {
+    if (!this.gitSync) {
+      new Notice("Carmina Git Sync: connect and apply repository settings first.");
+      return;
+    }
+
+    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const message = this.settings.commitMessageTemplate.split("{{datetime}}").join(now);
+
+    this.setStatus("pushing");
+    const result = await this.gitSync.pushLocalChanges(message);
+    await this.finishOperation("push", result, true);
+  }
+
+  async adoptGithubAsCanonical(): Promise<void> {
+    if (!this.gitSync) {
+      new Notice("Carmina Git Sync: connect and apply repository settings first.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Adopt GitHub as canonical?\n\n" +
+      "This rewrites the local configured branch to the current GitHub branch and " +
+      "checks out GitHub's tracked files. Local tracked changes can be overwritten. " +
+      "Use this only when GitHub is definitely the source of truth."
+    );
+    if (!confirmed) return;
+
+    this.setStatus("pulling");
+    const result = await this.gitSync.adoptRemoteAsCanonical();
+    await this.finishOperation("pull", result, true);
+  }
+
+  async applyRepositorySettings(): Promise<void> {
     try {
-      const allFiles = this.app.vault
-        .getFiles()
-        .map((f) => f.path)
-        .filter((p) => !this.isExcluded(p));
-
-      const result = await this.gitSync.sync(allFiles);
-
-      // DEBUG: show the full step-by-step trace on-screen (mobile has no console).
-      if (result.logs && result.logs.length) {
-        const header = result.success
-          ? "Sync OK"
-          : `Sync error: ${result.error ?? "unknown"}`;
-        showLogModal(this.app, header, result.logs);
-      }
-
-      if (result.conflictFiles.length > 0) {
-        this.setStatus("conflict");
-        this.showConflictModal(result.conflictFiles);
-      } else if (result.success) {
-        this.settings.lastSyncTime = Date.now();
+      this.setStatus("connecting");
+      const result = await this.connectConfiguredRepo();
+      if (result.success) {
         await this.saveSettings();
-        this.setStatus("idle");
-        new Notice("Vault synced successfully.");
-      } else {
-        this.setStatus("error", result.error);
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.setStatus("error", msg);
-      new Notice(`Sync failed: ${msg}`);
+      await this.finishOperation("pull", result, true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.setStatus("error", message);
+      new Notice(`Repository connection failed: ${message}`);
     }
   }
 
-  private showConflictModal(conflicts: ConflictFile[]): void {
-    new ConflictModal(
-      this.app,
-      conflicts,
-      async (filepath, resolved) => {
-        // Returns true only once EVERY conflict is decided and the merge landed.
-        const merged = await this.gitSync!.resolveConflict(filepath, resolved);
-        if (merged) {
-          this.settings.lastSyncTime = Date.now();
-          await this.saveSettings();
-          this.setStatus("idle");
-          new Notice("Conflicts resolved — vault synced.");
-        }
-      },
-      () => {
-        // Dismissed without deciding everything: drop the pending merge so the
-        // repo stays exactly as it was. The next sync will offer it again.
-        this.gitSync?.abandonMerge();
-        this.setStatus("idle");
-      }
-    ).open();
+  private async finishOperation(
+    kind: "pull" | "push",
+    result: GitOperationResult,
+    showSuccessNotice: boolean
+  ): Promise<void> {
+    if (result.success) {
+      if (kind === "pull") this.settings.lastPullTime = Date.now();
+      if (kind === "push" && result.changed) this.settings.lastPushTime = Date.now();
+      await this.saveSettings();
+      this.setStatus("idle");
+      if (showSuccessNotice) new Notice(result.message);
+      return;
+    }
+
+    this.setStatus("error", result.error ?? result.message);
+    new Notice(`${result.message} ${result.error ?? ""}`.trim());
+    showLogModal(this.app, "Carmina Git Sync", result.logs);
   }
 
   private isExcluded(filepath: string): boolean {
     return this.settings.excludePatterns.some((pattern) => {
-      // Convert simple glob pattern (supports *) to regex
       const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
       const regexStr = escaped.replace(/\*/g, ".*");
       return new RegExp(`^${regexStr}$`).test(filepath);
@@ -274,27 +227,29 @@ export default class MultiSyncPlugin extends Plugin {
   }
 }
 
-/**
- * DEBUG helper: show a scrollable log trace on-screen. Used because mobile has
- * no reachable dev console. Includes a Copy button so the trace can be shared.
- */
-function showLogModal(app: import("obsidian").App, header: string, logs: string[]): void {
+function showLogModal(
+  app: import("obsidian").App,
+  header: string,
+  logs: string[]
+): void {
+  if (logs.length === 0) return;
+
   const modal = new Modal(app);
   modal.titleEl.setText(header);
-  const body = logs.join("\n");
 
+  const body = logs.join("\n");
   const pre = modal.contentEl.createEl("pre");
   pre.style.cssText =
-    "white-space:pre-wrap;word-break:break-all;font-family:monospace;" +
+    "white-space:pre-wrap;word-break:break-word;font-family:monospace;" +
     "font-size:12px;max-height:60vh;overflow:auto;user-select:text;" +
     "background:var(--background-secondary);padding:8px;border-radius:6px;";
   pre.setText(body);
 
-  const btn = modal.contentEl.createEl("button", { text: "Copy" });
-  btn.style.marginTop = "8px";
-  btn.onclick = () => {
-    navigator.clipboard?.writeText(body);
-    new Notice("Log copied.");
+  const button = modal.contentEl.createEl("button", { text: "Copy log" });
+  button.style.marginTop = "8px";
+  button.onclick = () => {
+    void navigator.clipboard?.writeText(body);
+    new Notice("Sync log copied.");
   };
 
   modal.open();

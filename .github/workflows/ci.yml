@@ -1,12 +1,15 @@
-name: Release Obsidian Plugin
+name: Build and typecheck
 
 on:
   push:
-    tags:
-      - "*"
+    branches:
+      - main
+      - "alpha/**"
+  pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -29,13 +32,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            main.js
-            manifest.json
-            versions.json
-          prerelease: true
-          token: ${{ secrets.GITHUB_TOKEN }}
