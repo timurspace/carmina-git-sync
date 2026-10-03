@@ -158,7 +158,7 @@ export default class CarminaGitSyncPlugin extends Plugin {
     }
 
     const now = new Date().toISOString().replace("T", " ").slice(0, 19);
-    const message = this.settings.commitMessageTemplate.replaceAll("{{datetime}}", now);
+    const message = this.settings.commitMessageTemplate.split("{{datetime}}").join(now);
 
     this.setStatus("pushing");
     const result = await this.gitSync.pushLocalChanges(message);
