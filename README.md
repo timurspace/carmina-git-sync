@@ -47,6 +47,15 @@ BRAT installation is easiest after this repository has a GitHub prerelease conta
 - `manifest.json`
 - `versions.json`
 
+To create a test prerelease without a local development environment:
+
+1. open **Actions → Release Obsidian Plugin** in this repository;
+2. choose **Run workflow**;
+3. keep or enter a tag such as `v0.2.0-alpha.1`;
+4. wait for the workflow to finish.
+
+The workflow typechecks and builds the plugin, then creates a GitHub prerelease with the three BRAT assets.
+
 ## GitHub OAuth setup
 
 Authentication uses GitHub OAuth Device Flow. Each tester supplies their own OAuth App Client ID; no client secret is embedded in the plugin.
