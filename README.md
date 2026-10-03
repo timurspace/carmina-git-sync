@@ -25,6 +25,16 @@ Version **0.2.0 alpha** does not try to behave like Dropbox.
 
 If local and remote histories diverge, the plugin stops and asks the user to choose a recovery path.
 
+## Carmina Mobile Profile
+
+Carmina Git Sync is designed for both a full repository checkout and reduced mobile working copies.
+
+The mobile profile keeps Obsidian configuration and corpus-related files while avoiding unnecessary project development files on Android devices.
+
+The full repository remains the canonical source on GitHub.
+
+Implementation of mobile profiles is a separate architectural task from the current synchronization core.
+
 ## Migration from an older Git Sync vault
 
 An older plugin may have left a local `.git` history pointing at a different repository. The alpha will not merge that history automatically.
