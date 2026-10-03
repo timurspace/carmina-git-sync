@@ -1,463 +1,110 @@
-# Git Sync
+# Carmina Git Sync
 
-> Sync your Obsidian vault across every device using your own **free private GitHub repo**.  
-> No subscription. No cloud fees. Works on desktop (Windows / macOS / Linux) and mobile (iOS / Android).
+A conservative Obsidian GitHub sync plugin for **Carmina et Sententiae**.
 
----
+This repository is a fork in the Git Sync / `github-valut-sync` family. It keeps the mobile-safe `isomorphic-git` approach and several fixes from downstream contributors, but changes the synchronization contract deliberately:
 
-## How It Works
+> **GitHub is canonical. Obsidian is a working copy.**
 
-```
-Your GitHub Account
-        │
-        ├── obsidian-personal-notes  ← Vault 1 (all your devices sync here)
-        ├── obsidian-work-notes      ← Vault 2 (separate repo, same account)
-        └── obsidian-research        ← Vault 3 (separate repo, same account)
+## Alpha safety model
 
-Desktop  ──┐
-Mobile   ──┼──▶  obsidian-personal-notes  (same private GitHub repo)
-Laptop   ──┘
-```
+Version **0.2.0 alpha** does not try to behave like Dropbox.
 
-1. You connect your GitHub account once (in-browser, one approval click).
-2. The plugin auto-creates a **private repo** named after your vault.
-3. Every file save is automatically committed and pushed in the background.
-4. Every device pulls the latest changes when Obsidian opens.
-5. Conflicts are detected and shown with a side-by-side UI to resolve.
+- connects to an **existing** GitHub repository; it never creates `obsidian-*`;
+- repository owner, repository name and branch are explicit settings;
+- default target is `timurspace/carmina-et-sententiae`, branch `main`;
+- Pull is fetch + **fast-forward only**;
+- Push is an explicit user action;
+- Push always fetches first and refuses when GitHub has moved incompatibly;
+- no automatic merge;
+- no force-push;
+- no push on file save;
+- no push on Obsidian close;
+- optional Pull on open is enabled by default;
+- rename/delete are discovered from the complete Git status at Push time, not from a fragile event queue.
 
----
+If local and remote histories diverge, the plugin stops and asks the user to choose a recovery path.
 
-## Features
+## Migration from an older Git Sync vault
 
-- **Works on all devices** — desktop and mobile via isomorphic-git (pure JS, no native binary)
-- **One GitHub account, multiple vaults** — each vault gets its own private repo
-- **Auto-sync** — changes push silently in the background after a short debounce
-- **Pull on open** — always up-to-date when you open Obsidian
-- **Conflict resolution UI** — side-by-side view when two devices edit the same file
-- **Zero cost** — uses your own free GitHub repos, no server involved
-- **No data leaves your account** — all files go into your own private GitHub repo
+An older plugin may have left a local `.git` history pointing at a different repository. The alpha will not merge that history automatically.
 
----
+The settings include **Adopt GitHub as canonical**. This is deliberately destructive: after explicit confirmation it repoints the configured local branch to the current GitHub branch and checks out GitHub's tracked files.
 
-## Requirements
+Back up the vault before using this migration action.
 
-- Obsidian **1.0.0** or later
-- A **free GitHub account** — [sign up at github.com](https://github.com/join) if you don't have one
-- Internet access for sync (offline edits are queued and synced when back online)
-- Node.js **18+** and npm (for building from source)
+## Install for testing
 
----
+The intended alpha channel is **BRAT**, not the Obsidian Community Plugins directory.
 
-## Part 1 — Developer Setup (Build from Source)
+1. Install BRAT from Obsidian Community Plugins.
+2. Add this repository as a beta plugin:
+   `https://github.com/timurspace/carmina-git-sync`
+3. Enable **Carmina Git Sync** in Community Plugins.
 
-### Prerequisites
+BRAT installation is easiest after this repository has a GitHub prerelease containing:
+- `main.js`
+- `manifest.json`
+- `versions.json`
 
-| Tool | Version | Install |
-|---|---|---|
-| Node.js | 18+ | https://nodejs.org |
-| npm | 9+ | Bundled with Node.js |
-| Git | any | https://git-scm.com |
+## GitHub OAuth setup
 
-### 1.1 — Clone the Repository
+Authentication uses GitHub OAuth Device Flow. Each tester supplies their own OAuth App Client ID; no client secret is embedded in the plugin.
+
+Create a GitHub OAuth App once:
+
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App.
+2. Choose any suitable application name.
+3. Homepage URL: this repository URL or `https://obsidian.md`.
+4. Callback URL can be `https://obsidian.md` because Device Flow does not use the callback.
+5. Enable **Device Flow**.
+6. Copy the Client ID into **Settings → Carmina Git Sync → OAuth Client ID**.
+
+The plugin currently requests the `repo` OAuth scope because the canonical Carmina repository is private.
+
+## First connection
+
+In Obsidian:
+
+1. enter the OAuth Client ID;
+2. connect GitHub and approve the device code;
+3. confirm:
+   - owner: `timurspace`
+   - repository: `carmina-et-sententiae`
+   - branch: `main`
+4. press **Apply / connect**.
+
+If the local Git history is unrelated to the canonical repository, normal attachment stops. Only then consider **Adopt GitHub as canonical**, after a backup.
+
+## Daily use
+
+**Pull from GitHub** is the normal operation, especially after editing cards directly on GitHub.
+
+**Push local changes** is deliberate. It:
+1. fetches current GitHub state;
+2. refuses to continue if GitHub moved incompatibly;
+3. stages all non-excluded local changes, including rename/delete;
+4. creates one commit if needed;
+5. pushes without force.
+
+The status-bar item triggers Pull, not Push.
+
+## Development
 
 ```bash
-git clone https://github.com/livan116/github-valut-sync.git
-cd github-valut-sync
-```
-
-### 1.2 — Install Dependencies
-
-```bash
-npm install
-```
-
-This installs:
-- `isomorphic-git` — pure-JS git engine (works on mobile, no native binaries)
-- `esbuild` — fast bundler
-- `typescript` — type definitions / optional type checking (not part of the build)
-- `obsidian` — type definitions only (not bundled)
-
-### 1.3 — Build the Plugin
-
-```bash
-# Development build (watch mode — rebuilds on every save)
-npm run dev
-
-# Production build (minified, no source maps)
+npm ci
+npm run typecheck
 npm run build
 ```
 
-Both commands output a single `main.js` file in the project root. There are **no
-build-time secrets** — the GitHub OAuth Client ID is entered by each user in plugin
-settings at runtime (see [Part 3](#part-3--connecting-your-github-account)), so the
-build needs no `.env` or CI secret.
+The production build writes `main.js`.
 
-**Watch mode** (`npm run dev`) keeps running and rebuilds automatically as you edit source files. Leave it running while you test in Obsidian.
+A GitHub Actions workflow runs typecheck + build for pull requests and alpha/main pushes. Tagged builds create prereleases suitable for BRAT testing.
 
-### 1.4 — Project Structure
+## Upstream and license
 
-```
-github-valut-sync/
-├── src/
-│   ├── main.ts                   # Plugin entry point — wires everything together
-│   ├── types.ts                  # All TypeScript interfaces & types
-│   ├── constants.ts              # App-wide constants (URLs, branch, debounce)
-│   ├── auth/
-│   │   └── github-device.ts      # GitHub OAuth Device Flow (no server needed)
-│   ├── github/
-│   │   └── api.ts                # GitHub REST API wrapper (create repo, get user)
-│   ├── sync/
-│   │   ├── fs-adapter.ts         # Bridges Obsidian DataAdapter → isomorphic-git fs
-│   │   ├── git-sync.ts           # Core git operations: init / clone / pull / push
-│   │   ├── queue.ts              # Debounced sync queue with mutex (no race conditions)
-│   │   └── conflict.ts           # Conflict diff summary helper
-│   └── ui/
-│       ├── settings-tab.ts       # Plugin settings page
-│       ├── conflict-modal.ts     # Side-by-side conflict resolution modal
-│       └── status-bar.ts         # Live sync indicator in the status bar
-├── manifest.json                 # Obsidian plugin manifest
-├── package.json
-├── tsconfig.json
-├── esbuild.config.mjs
-└── main.js                       # Built output (git-ignored, generated by build)
-```
+Based on **Git Sync** by Livan Kumar (`livan116/github-valut-sync`) under the MIT License, with inherited fixes from the fork lineage including JiaPeng1234's mobile/sync work.
 
----
+The original MIT license is preserved in `LICENSE`.
 
-## Part 2 — Installing the Plugin
-
-### Option A — Manual Install from Build Output
-
-After running `npm run build`:
-
-1. Create the plugin folder inside your vault:
-   ```
-   YourVault/.obsidian/plugins/git-obsi-sync/
-   ```
-2. Copy these two files into that folder:
-   ```
-   main.js
-   manifest.json
-   ```
-3. Open Obsidian → **Settings** → **Community plugins**
-4. Turn off **Restricted Mode** if prompted
-5. Find **Git Sync** in the list → toggle it **ON**
-
-**Tip for development:** You can symlink the project directory directly into your vault's plugins folder so the built `main.js` is picked up automatically after each build:
-
-```bash
-# Windows (run as Administrator)
-mklink /D "C:\path\to\vault\.obsidian\plugins\git-obsi-sync" "C:\path\to\github-valut-sync"
-
-# macOS / Linux
-ln -s /path/to/github-valut-sync /path/to/vault/.obsidian/plugins/git-obsi-sync
-```
-
-### Option B — BRAT (Beta Testers)
-
-1. Install the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat) from Community Plugins.
-2. Open BRAT settings → **Add Beta Plugin**
-3. Paste the repo URL: `https://github.com/livan116/github-valut-sync`
-4. Click **Add Plugin** — BRAT installs it automatically.
-
----
-
-## Part 3 — Connecting Your GitHub Account
-
-> Do this on **every device** where you want sync. Use the **same GitHub account** each time.
-
-### Step 1 — Register a GitHub OAuth App (one-time)
-
-The plugin authenticates through **your own** GitHub OAuth App — there is no shared/built-in
-app, so you register one once and reuse its Client ID on every device.
-
-1. Go to [github.com/settings/developers](https://github.com/settings/developers) → **OAuth Apps** → **New OAuth App**.
-2. Fill in:
-
-   | Field | Value |
-   |---|---|
-   | Application name | Anything *except* a name containing "GitHub" (GitHub rejects those). It's just the label shown on the authorization screen. |
-   | Homepage URL | `https://obsidian.md` (any valid URL works) |
-   | Authorization callback URL | `https://obsidian.md` (placeholder — Device Flow doesn't use it) |
-
-3. **Register application**, then **enable Device Flow** on the app's settings page — the plugin will not work without it.
-4. Copy the **Client ID** (looks like `Ov23li…`). **Do not** create a Client Secret — Device Flow doesn't need one.
-
-### Step 2 — Enter the Client ID in Obsidian
-
-Go to **Settings** → **Git Sync**, paste your Client ID into **GitHub OAuth Client ID**.
-
-### Step 3 — Click "Connect GitHub"
-
-You will see a screen like this:
-
-```
-┌─────────────────────────────────────────┐
-│  Open this URL in your browser:         │
-│  https://github.com/login/device        │
-│                                         │
-│           AB12-CD34                     │
-│                                         │
-│  Waiting for approval in browser…       │
-└─────────────────────────────────────────┘
-```
-
-Your browser will open automatically. If it doesn't, copy the URL manually.
-
-### Step 4 — Enter the Code in Your Browser
-
-1. The GitHub page asks: **"Enter the code shown in your app"**
-2. Type in the 8-character code (e.g. `AB12-CD34`)
-3. Click **Continue**
-4. Review what access the plugin requests: **private repos** (to create and sync your vault repo)
-5. Click **Authorize**
-
-### Step 5 — Done
-
-Back in Obsidian you'll see:
-
-```
-Connected as @your-github-username. Vault syncing started!
-```
-
-The plugin will:
-- **First device**: Create a new private repo named `obsidian-<your-vault-name>` and push all your files.
-- **Additional devices**: Detect the existing repo and clone it automatically.
-
----
-
-## Part 4 — Using the Plugin
-
-### Automatic Sync
-
-Once connected, the plugin runs silently in the background:
-
-| Event | What happens |
-|---|---|
-| You save / edit a file | Changes are committed and pushed after 3 seconds of inactivity |
-| You open Obsidian | Latest changes are pulled from GitHub |
-| You close Obsidian | Any pending changes are flushed and pushed |
-| Two devices edit same file | Conflict modal appears next time you open Obsidian |
-
-### Status Bar
-
-The bottom-right corner shows the current sync state:
-
-| Indicator | Meaning |
-|---|---|
-| `✓ MultiSync` | All good, fully synced |
-| `↓ Syncing…` | Pulling from GitHub |
-| `↑ Syncing…` | Pushing to GitHub |
-| `⚠ Conflict` | Two devices edited the same file — action needed |
-| `✗ Sync Error` | Network or auth issue — hover for detail |
-
-Click the status bar item to trigger an **immediate manual sync** at any time.
-
-### Manual Sync
-
-- Click the status bar item, **or**
-- Open the Command Palette (`Ctrl/Cmd + P`) → search **"Sync vault now"**
-
----
-
-## Part 5 — Resolving Conflicts
-
-A conflict happens when the **same file** is edited on two devices before either has synced.
-
-When the plugin detects a conflict, a modal appears automatically:
-
-```
-┌──────────────────────────────────────────────────┐
-│  Sync Conflict (1 / 2)                           │
-│  File: notes/daily/2025-06-01.md                 │
-│                                                  │
-│  Changed lines:                                  │
-│  Line 4:                                         │
-│    - meeting at 3pm                              │
-│    + meeting at 4pm                              │
-│                                                  │
-│  YOUR VERSION        │  REMOTE VERSION           │
-│  ──────────────────  │  ─────────────────        │
-│  # June 1            │  # June 1                 │
-│  meeting at 3pm      │  meeting at 4pm           │
-│                                                  │
-│  [Keep Mine]  [Keep Theirs]  [Open in Editor]    │
-└──────────────────────────────────────────────────┘
-```
-
-| Button | Action |
-|---|---|
-| **Keep Mine** | Use the version from this device, discard remote changes |
-| **Keep Theirs** | Use the remote version, discard local changes |
-| **Open in Editor** | Close modal, open the file — edit it manually, then sync again |
-
-After resolving, the file is immediately committed and pushed.
-
----
-
-## Part 6 — Multiple Vaults
-
-Each vault gets its **own separate repo** automatically. There's nothing extra to configure.
-
-```
-Vault: "Personal Notes"   →  github.com/you/obsidian-personal-notes
-Vault: "Work"             →  github.com/you/obsidian-work
-Vault: "Research"         →  github.com/you/obsidian-research
-```
-
-On each device:
-1. Open the vault in Obsidian.
-2. Go to **Settings → Git Sync** → connect your GitHub account.
-3. The plugin detects which vault is open and connects to the right repo automatically.
-
----
-
-## Part 7 — Settings Reference
-
-| Setting | Default | Description |
-|---|---|---|
-| **Auto-sync** | On | Automatically sync on file changes |
-| **Sync debounce** | 3000 ms | How long to wait after your last keystroke before syncing |
-| **Excluded patterns** | See below | Files/folders that will never be synced |
-
-### Default Excluded Patterns
-
-```
-.obsidian/workspace
-.obsidian/workspace.json
-.obsidian/plugins/*/data.json
-```
-
-These are excluded because they change frequently, are device-specific, and don't need to be shared.
-
-To add more exclusions, open **Settings → Git Sync → Excluded patterns** and add one pattern per line. Wildcards (`*`) are supported.
-
-Example — exclude all files in a `Private` folder:
-```
-Private/*
-```
-
----
-
-## Troubleshooting
-
-### "Device code expired"
-The 8-character code has a 15-minute expiry. Click **Connect GitHub** again to get a fresh code.
-
-### "Access denied"
-You clicked **Cancel** on the GitHub authorization page. Click **Connect GitHub** to try again.
-
-### Sync shows `✗ Sync Error`
-1. Check your internet connection.
-2. Open **Settings → Git Sync** — if disconnected, click **Connect GitHub** to re-authenticate.
-3. GitHub tokens occasionally expire — reconnecting issues a fresh token.
-
-### Files not appearing on second device
-1. Make sure you connected the **same GitHub account** on both devices.
-2. Check the status bar on both devices — both should show `✓ MultiSync`.
-3. Trigger a manual sync on the device that has the new files (`Ctrl/Cmd + P` → "Sync vault now").
-
-### Mobile — "Cannot sync"
-- Ensure your mobile device has an internet connection.
-- The plugin uses Obsidian's built-in HTTP layer so it does not need special mobile permissions.
-- If syncing fails on mobile, try disconnecting and reconnecting your GitHub account.
-
-### `.git` folder visible in vault
-The `.git` folder is hidden in Obsidian by default. If you see it, go to  
-**Settings → Files & Links → Excluded files** and add `.git`.
-
-### Build fails with "Cannot find module 'obsidian'"
-Run `npm install` to install devDependencies. The `obsidian` package provides types only.
-
-### "Enter your GitHub OAuth App's Client ID before connecting"
-You haven't set a Client ID yet. Register an OAuth App with Device Flow enabled
-(see [Part 3 · Step 1](#step-1--register-a-github-oauth-app-one-time)) and paste its
-Client ID into **Settings → Git Sync → GitHub OAuth Client ID**.
-
-### TypeScript errors after pulling
-Run `npm install` — a dependency may have been added. Then re-run `npm run build`.
-
----
-
-## FAQ
-
-**Q: Is my data private?**  
-A: Yes. The plugin creates a **private** GitHub repo. Only your GitHub account can access it.
-
-**Q: Does the plugin developer see my notes?**  
-A: No. The plugin runs entirely on your device and connects directly to your own GitHub account. There is no intermediate server.
-
-**Q: What happens if I edit the same file on two offline devices?**  
-A: When both devices come online, the plugin detects the conflict and shows you the resolution modal.
-
-**Q: Can I use this with an existing vault that already has files?**  
-A: Yes. On first connection, the plugin pushes all your existing files to the new GitHub repo.
-
-**Q: Does this work with Obsidian's built-in sync?**  
-A: It's designed to replace, not complement, Obsidian Sync. Using both at once is not recommended as they may conflict.
-
-**Q: What is the storage limit?**  
-A: GitHub repos have a soft limit of 1 GB per repo. A typical Obsidian vault of markdown files is well under 100 MB.
-
-**Q: Can I view my notes on GitHub directly?**  
-A: Yes — GitHub renders Markdown files beautifully. Browse your private repo at `github.com/your-github-username/obsidian-<vaultname>`.
-
-**Q: Why does the plugin need the `repo` OAuth scope?**  
-A: The `repo` scope is the minimum required to create and push to **private** repositories. Without it GitHub only allows access to public repos.
-
----
-
-## Privacy & Security
-
-- Your GitHub **access token** is stored only in Obsidian's local plugin data folder (`.obsidian/plugins/git-obsi-sync/data.json`) on each device. It never leaves your device except to communicate directly with GitHub's API.
-- The plugin requests only the **`repo` scope** — the minimum required to create and access private repositories.
-- To revoke access at any time: GitHub → Settings → Applications → Authorized OAuth Apps → **Revoke**.
-
----
-
-## Architecture Notes (for Contributors)
-
-| Concern | Solution | Why |
-|---|---|---|
-| Auth | GitHub OAuth Device Flow | No server or callback URL needed |
-| Storage | User's own private GitHub repo | Free, private, version-controlled |
-| Sync engine | isomorphic-git (pure JS) | Works on iOS/Android — no native binaries |
-| File system | Custom adapter wrapping DataAdapter | Obsidian's API works on all platforms |
-| HTTP | Obsidian's `requestUrl` API | Bypasses CORS, works on mobile |
-
-**Key constraints:**
-- Never use `require('fs')` — always use the `fs-adapter` so mobile works.
-- Always pull before push — enforced in `git-sync.ts::sync()`.
-- Always use `requestUrl` from obsidian for HTTP — never `fetch` or `axios`.
-- Never store the GitHub token anywhere other than `this.saveData()`.
-
----
-
-## Contributing
-
-Pull requests welcome!
-
-```bash
-# 1. Fork and clone
-git clone https://github.com/livan116/github-valut-sync.git
-cd github-valut-sync
-
-# 2. Install deps
-npm install
-
-# 3. Start watch mode (no .env / secret needed — Client ID is entered at runtime)
-npm run dev
-
-# 4. Symlink into your test vault (see Part 2 above)
-# 5. Make your changes — Obsidian hot-reloads the plugin automatically
-# 6. Run a type check before submitting
-npx tsc --noEmit
-```
-
-For bugs and feature requests, open an [issue](https://github.com/livan116/github-valut-sync/issues).
-
----
-
-## License
-
-MIT © 2025 Livan Kumar
+This fork is currently project-specific experimental software; it is **not** submitted to the official Obsidian Community Plugins directory.

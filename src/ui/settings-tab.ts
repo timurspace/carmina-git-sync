@@ -1,209 +1,238 @@
-import { App, PluginSettingTab, Setting, Notice, ButtonComponent } from "obsidian";
-import type MultiSyncPlugin from "../main";
+import { App, ButtonComponent, Notice, PluginSettingTab, Setting } from "obsidian";
+import type CarminaGitSyncPlugin from "../main";
 import { requestDeviceCode, pollForToken } from "../auth/github-device";
 import { getAuthenticatedUser } from "../github/api";
 
 export class MultiSyncSettingsTab extends PluginSettingTab {
-  plugin: MultiSyncPlugin;
+  plugin: CarminaGitSyncPlugin;
 
-  constructor(app: App, plugin: MultiSyncPlugin) {
+  constructor(app: App, plugin: CarminaGitSyncPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
   display(): void {
     const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl("h2", { text: "MultiSync Settings" });
-
     const settings = this.plugin.settings;
+    containerEl.empty();
 
-    // ── Account section ──────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "GitHub Account" });
+    containerEl.createEl("h2", { text: "Carmina Git Sync" });
+    containerEl.createEl("p", {
+      text:
+        "GitHub is canonical. Pull is safe and fast-forward-only; Push is always explicit. " +
+        "This alpha never auto-merges and never force-pushes.",
+      cls: "setting-item-description",
+    });
+
+    containerEl.createEl("h3", { text: "Repository" });
+
+    new Setting(containerEl)
+      .setName("Repository owner")
+      .setDesc("GitHub owner of the canonical repository.")
+      .addText((text) =>
+        text
+          .setPlaceholder("timurspace")
+          .setValue(settings.repoOwner)
+          .onChange(async (value) => {
+            settings.repoOwner = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Repository name")
+      .setDesc("Existing repository only. The plugin never creates a repository.")
+      .addText((text) =>
+        text
+          .setPlaceholder("carmina-et-sententiae")
+          .setValue(settings.repoName)
+          .onChange(async (value) => {
+            settings.repoName = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Branch")
+      .setDesc("Canonical branch. Default: main.")
+      .addText((text) =>
+        text
+          .setPlaceholder("main")
+          .setValue(settings.branch)
+          .onChange(async (value) => {
+            settings.branch = value.trim() || "main";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Apply repository settings")
+      .setDesc("Verify the existing repository and attach this vault without creating or merging anything.")
+      .addButton((button) =>
+        button.setButtonText("Apply / connect").setCta().onClick(async () => {
+          await this.plugin.applyRepositorySettings();
+          this.display();
+        })
+      );
+
+    containerEl.createEl("h3", { text: "GitHub account" });
+
+    new Setting(containerEl)
+      .setName("OAuth Client ID")
+      .setDesc("Your GitHub OAuth App Client ID. Device Flow must be enabled.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Ov23li…")
+          .setValue(settings.clientId)
+          .onChange(async (value) => {
+            settings.clientId = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
 
     if (settings.githubToken && settings.githubUsername) {
-      // Connected state
       new Setting(containerEl)
         .setName("Connected account")
         .setDesc(`Signed in as @${settings.githubUsername}`)
-        .addButton((btn) =>
-          btn
+        .addButton((button) =>
+          button
             .setButtonText("Disconnect")
             .setWarning()
             .onClick(async () => {
               settings.githubToken = "";
               settings.githubUsername = "";
-              settings.repoName = "";
               await this.plugin.saveSettings();
+              await this.plugin.bootSyncEngine();
               this.display();
               new Notice("Disconnected from GitHub.");
             })
         );
-
-      new Setting(containerEl)
-        .setName("Vault repo")
-        .setDesc(`github.com/${settings.githubUsername}/${settings.repoName}`);
     } else {
-      // Disconnected state
       new Setting(containerEl)
-        .setName("GitHub OAuth Client ID")
-        .setDesc(
-          "Required. Register a GitHub OAuth App with Device Flow enabled and paste its Client ID here. See the plugin README for step-by-step instructions."
-        )
-        .addText((text) =>
-          text
-            .setPlaceholder("Ov23li…")
-            .setValue(settings.clientId)
-            .onChange(async (val) => {
-              settings.clientId = val.trim();
-              await this.plugin.saveSettings();
-            })
+        .setName("Connect GitHub")
+        .setDesc("Authorize access to the existing private canonical repository.")
+        .addButton((button) =>
+          button.setButtonText("Connect GitHub").setCta().onClick(async () => {
+            await this.startDeviceFlow(button);
+          })
         );
-
-      new Setting(containerEl)
-        .setName("Repository name")
-        .setDesc(
-          "The GitHub repo to sync this vault with. Use the SAME name on every device. " +
-          "It will be created under your account if it doesn't exist. Leave blank to use the vault name."
-        )
-        .addText((text) =>
-          text
-            .setPlaceholder("my-vault")
-            .setValue(settings.repoName)
-            .onChange(async (val) => {
-              settings.repoName = val.trim();
-              await this.plugin.saveSettings();
-            })
-        );
-
-      new Setting(containerEl)
-        .setName("Connect GitHub account")
-        .setDesc(
-          "Authorise MultiSync to access your private repos. Opens a browser window."
-        )
-        .addButton((btn) => {
-          btn
-            .setButtonText("Connect GitHub")
-            .setCta()
-            .onClick(async () => {
-              await this.startDeviceFlow(btn);
-            });
-        });
     }
 
-    // ── Sync options ──────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Sync Options" });
+    containerEl.createEl("h3", { text: "Safety" });
 
     new Setting(containerEl)
-      .setName("Auto-sync")
-      .setDesc("Automatically sync when files are modified.")
+      .setName("Pull on open")
+      .setDesc("Fetch and fast-forward from GitHub when Obsidian opens. Stops if local changes exist.")
       .addToggle((toggle) =>
-        toggle.setValue(settings.autoSync).onChange(async (val) => {
-          settings.autoSync = val;
+        toggle.setValue(settings.pullOnOpen).onChange(async (value) => {
+          settings.pullOnOpen = value;
           await this.plugin.saveSettings();
         })
       );
 
     new Setting(containerEl)
-      .setName("Sync debounce (ms)")
-      .setDesc("Wait this many milliseconds after the last edit before syncing.")
-      .addSlider((slider) =>
-        slider
-          .setLimits(1000, 10000, 500)
-          .setValue(settings.syncIntervalMs)
-          .setDynamicTooltip()
-          .onChange(async (val) => {
-            settings.syncIntervalMs = val;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
       .setName("Excluded patterns")
-      .setDesc("One pattern per line. These files will never be synced.")
-      .addTextArea((ta) =>
-        ta
+      .setDesc("One simple * pattern per line. Excluded paths are never committed by Push.")
+      .addTextArea((area) =>
+        area
           .setValue(settings.excludePatterns.join("\n"))
-          .onChange(async (val) => {
-            settings.excludePatterns = val
+          .onChange(async (value) => {
+            settings.excludePatterns = value
               .split("\n")
-              .map((s) => s.trim())
+              .map((item) => item.trim())
               .filter(Boolean);
             await this.plugin.saveSettings();
           })
       );
 
-    // ── Manual sync ───────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Manual Sync" });
+    new Setting(containerEl)
+      .setName("Commit message")
+      .setDesc("Used by explicit Push. {{datetime}} is replaced automatically.")
+      .addText((text) =>
+        text
+          .setValue(settings.commitMessageTemplate)
+          .onChange(async (value) => {
+            settings.commitMessageTemplate = value || "obsidian: {{datetime}}";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    containerEl.createEl("h3", { text: "Manual operations" });
 
     new Setting(containerEl)
-      .setName("Sync now")
-      .setDesc("Immediately push all local changes and pull remote changes.")
-      .addButton((btn) =>
-        btn.setButtonText("Sync Now").onClick(async () => {
-          await this.plugin.triggerManualSync();
+      .setName("Pull from GitHub")
+      .setDesc("Fetch and fast-forward only. Never creates a merge commit.")
+      .addButton((button) =>
+        button.setButtonText("Pull").onClick(async () => {
+          await this.plugin.triggerPull();
+          this.display();
         })
       );
 
-    // ── Last sync time ────────────────────────────────────────────────────────
-    if (settings.lastSyncTime > 0) {
-      const lastSync = new Date(settings.lastSyncTime).toLocaleString();
-      containerEl.createEl("p", {
-        text: `Last synced: ${lastSync}`,
-        cls: "setting-item-description",
-      });
-    }
+    new Setting(containerEl)
+      .setName("Push local changes")
+      .setDesc("Fetch first; push only when remote ancestry is safe. Never force-pushes.")
+      .addButton((button) =>
+        button.setButtonText("Push").onClick(async () => {
+          await this.plugin.triggerPush();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Adopt GitHub as canonical")
+      .setDesc(
+        "Destructive recovery/migration action. Repoints the local configured branch to GitHub and checks out GitHub's tracked files."
+      )
+      .addButton((button) =>
+        button.setButtonText("Adopt GitHub").setWarning().onClick(async () => {
+          await this.plugin.adoptGithubAsCanonical();
+          this.display();
+        })
+      );
+
+    const fmt = (value: number) =>
+      value > 0 ? new Date(value).toLocaleString() : "never";
+    containerEl.createEl("p", {
+      text: `Last pull: ${fmt(settings.lastPullTime)} · Last push: ${fmt(settings.lastPushTime)}`,
+      cls: "setting-item-description",
+    });
   }
 
-  private async startDeviceFlow(btn: ButtonComponent): Promise<void> {
+  private async startDeviceFlow(button: ButtonComponent): Promise<void> {
     const clientId = this.plugin.settings.clientId;
     if (!clientId) {
-      new Notice(
-        "Enter your GitHub OAuth App's Client ID above before connecting."
-      );
+      new Notice("Enter your GitHub OAuth App Client ID first.");
       return;
     }
 
-    btn.setButtonText("Connecting…").setDisabled(true);
+    button.setButtonText("Connecting…").setDisabled(true);
 
     try {
       const deviceFlow = await requestDeviceCode(clientId);
-
-      // Show the user their one-time code
-      const modal = this.containerEl.createDiv({ cls: "multisync-device-modal" });
-      modal.style.cssText =
+      const panel = this.containerEl.createDiv({ cls: "carmina-sync-device-flow" });
+      panel.style.cssText =
         "background:var(--background-secondary);border-radius:8px;padding:16px;" +
         "margin-top:12px;text-align:center;";
-      modal.createEl("p", {
-        text: "Open this URL in your browser and enter the code below:",
+
+      panel.createEl("p", {
+        text: "Open the GitHub device page and enter this code:",
       });
-      const link = modal.createEl("a", {
+      const link = panel.createEl("a", {
         text: deviceFlow.verification_uri,
         href: deviceFlow.verification_uri,
       });
       link.style.display = "block";
-      const codeEl = modal.createEl("h1", {
-        text: deviceFlow.user_code,
-        cls: "multisync-user-code",
-      });
-      // Explicit styling so the code is visible regardless of Obsidian theme
-      codeEl.style.cssText =
+
+      const code = panel.createEl("h1", { text: deviceFlow.user_code });
+      code.style.cssText =
         "font-size:2rem;letter-spacing:0.25em;font-weight:700;" +
         "color:var(--text-normal);background:var(--background-primary);" +
         "border:2px solid var(--interactive-accent);border-radius:6px;" +
         "padding:8px 24px;display:inline-block;margin:12px auto;font-family:monospace;";
-      modal.createEl("p", {
-        text: "Waiting for you to approve in the browser…",
-        cls: "setting-item-description",
-      });
 
-      // Restore button so the user can cancel / retry while waiting
-      btn.setButtonText("Cancel").setDisabled(false);
-
-      // Open browser automatically
       window.open(deviceFlow.verification_uri, "_blank");
 
-      // Poll until approved
       const token = await pollForToken(
         clientId,
         deviceFlow.device_code,
@@ -211,25 +240,20 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
         deviceFlow.expires_in
       );
 
-      modal.remove();
-
-      // Get user info
+      panel.remove();
       const user = await getAuthenticatedUser(token);
-      this.plugin.settings.githubToken    = token;
+      this.plugin.settings.githubToken = token;
       this.plugin.settings.githubUsername = user.login;
-
-      // Initialise the repo
-      await this.plugin.initializeRepo(token, user.login);
-
       await this.plugin.saveSettings();
-      new Notice(`Connected as @${user.login}. Vault syncing started!`);
+      await this.plugin.bootSyncEngine();
+
+      new Notice(`Connected as @${user.login}. Now apply repository settings.`);
       this.display();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Remove the code panel if it's still visible
-      this.containerEl.querySelector(".multisync-device-modal")?.remove();
-      new Notice(`Connection failed: ${msg}`);
-      btn.setButtonText("Connect GitHub").setDisabled(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.containerEl.querySelector(".carmina-sync-device-flow")?.remove();
+      new Notice(`GitHub connection failed: ${message}`);
+      button.setButtonText("Connect GitHub").setDisabled(false);
     }
   }
 }

@@ -2,11 +2,11 @@ import { Plugin } from "obsidian";
 import { SyncStatus } from "../types";
 
 const STATUS_ICONS: Record<SyncStatus, string> = {
-  idle:       "✓ MultiSync",
-  pulling:    "↓ Syncing…",
-  pushing:    "↑ Syncing…",
-  conflict:   "⚠ Conflict",
-  error:      "✗ Sync Error",
+  idle:       "✓ Carmina Git",
+  pulling:    "↓ Pulling…",
+  pushing:    "↑ Pushing…",
+  conflict:   "⚠ Needs attention",
+  error:      "✗ Git error",
   connecting: "… Connecting",
 };
 

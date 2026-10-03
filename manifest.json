@@ -1,11 +1,11 @@
 {
-  "id": "git-obsi-sync",
-  "name": "Git Sync",
-  "version": "1.0.15",
+  "id": "carmina-git-sync",
+  "name": "Carmina Git Sync",
+  "version": "0.2.0",
   "minAppVersion": "1.0.1",
-  "description": "Sync your vault across all devices using your own GitHub account. Free forever.",
-  "author": "Livan Kumar",
-  "authorUrl": "https://github.com/livan116",
+  "description": "Conservative GitHub-canonical working-copy sync for Obsidian, including mobile.",
+  "author": "timurspace; based on Git Sync by Livan Kumar and contributors",
+  "authorUrl": "https://github.com/timurspace/carmina-git-sync",
   "fundingUrl": "",
   "isDesktopOnly": false
 }
