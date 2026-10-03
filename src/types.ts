@@ -7,6 +7,7 @@ export interface PluginSettings {
   branch: string;
   pullOnOpen: boolean;
   excludePatterns: string[];
+  syncProfile: "full" | "carmina-mobile";
   lastPullTime: number;
   lastPushTime: number;
   commitMessageTemplate: string;
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   excludePatterns: [
     ".obsidian/*",
   ],
+  syncProfile: "full",
   lastPullTime: 0,
   lastPushTime: 0,
   commitMessageTemplate: "obsidian: {{datetime}}",
