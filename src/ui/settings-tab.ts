@@ -66,6 +66,20 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Sync profile")
+      .setDesc("Choose the working-copy profile for this device. Profile behavior is implemented separately.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("full", "Full repository")
+          .addOption("carmina-mobile", "Carmina Mobile")
+          .setValue(settings.syncProfile)
+          .onChange(async (value) => {
+            settings.syncProfile = value as typeof settings.syncProfile;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Apply repository settings")
       .setDesc("Verify the existing repository and attach this vault without creating or merging anything.")
       .addButton((button) =>
