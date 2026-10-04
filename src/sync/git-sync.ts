@@ -491,6 +491,11 @@ export class GitSync {
       for (const [filepath, , workdir] of dirtyRows) {
         try {
           if (workdir === 0) {
+            if (!this.isProfilePath(filepath)) {
+              log(`skipped sparse deletion: ${filepath}`);
+              continue;
+            }
+
             await git.remove({ fs: this.fs, dir: this.dir, filepath });
           } else {
             await git.add({ fs: this.fs, dir: this.dir, filepath });
