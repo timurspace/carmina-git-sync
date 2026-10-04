@@ -278,6 +278,7 @@ export class GitSync {
         }
         await this.fs.promises.unlink(this.workingPath(filepath));
         removed += 1;
+        log(`DELETE ${filepath}`);
         continue;
       }
 
@@ -297,6 +298,7 @@ export class GitSync {
         force: true,
         filepaths: restore,
       });
+      for (const filepath of restore) log(`RESTORE ${filepath}`);
     }
 
     log(`reconciled working copy to ${ref.slice(0, 8)}: restored=${restore.length} removed=${removed}`);
@@ -476,6 +478,18 @@ export class GitSync {
         );
       }
       throw error;
+    }
+
+    for (const change of profileChanges) {
+      if (preserveLocalPaths.has(change.filepath)) {
+        log(`KEEP LOCAL ${change.filepath}`);
+      } else if (change.afterOid === undefined) {
+        log(`DELETE ${change.filepath}`);
+      } else if (change.beforeOid === undefined) {
+        log(`ADD ${change.filepath}`);
+      } else {
+        log(`UPDATE ${change.filepath}`);
+      }
     }
 
     const preserved = dirtyPaths.filter((filepath) => preserveLocalPaths.has(filepath)).length;

@@ -147,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.4`
+- manifest version: `0.2.1-alpha.5`
 
 BRAT prereleases contain:
 
@@ -227,3 +227,10 @@ Remote removals must be treated explicitly: remove the path from the index and, 
 Do not assume `local HEAD == remote HEAD` implies the Obsidian working copy is canonical. Interrupted or earlier path-aware Pulls can leave profile paths stale, missing, or locally modified after the branch ref has advanced.
 
 Manual Pull must inspect working-copy differences even when ancestry is `equal`. If differences exist, it must require an explicit **Use GitHub** / **Keep local** decision. **Use GitHub** restores paths present at canonical HEAD and removes stale local paths absent from canonical HEAD.
+
+
+## Sync observability — alpha.5
+
+Every completed Pull/Push should leave a readable last-operation log. Pull materialization must log file-level actions using stable prefixes: `ADD`, `UPDATE`, `DELETE`, `RESTORE`, and `KEEP LOCAL`.
+
+Do not allow overlapping Pull/Push operations from repeated taps. A second request while sync is in progress should be rejected explicitly rather than starting another Git operation.
