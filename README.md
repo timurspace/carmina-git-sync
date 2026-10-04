@@ -167,7 +167,7 @@ Do not add card 058 to **Excluded patterns** to bypass this state. Exclusions ar
 See the full incident and validation record in [`docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`](docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md).
 
 
-### 0.2.1-alpha.2 path-aware Pull validation
+### 0.2.1-alpha.2 / alpha.3 path-aware Pull validation
 
 Release target: `0.2.1-alpha.2`.
 
@@ -179,3 +179,20 @@ This build changes the overly conservative alpha.1 Pull behavior. Validation mus
 4. **Keep local** preserves the phone copy while still pulling unrelated GitHub changes;
 5. a newly added in-profile card on GitHub appears locally;
 6. no merge commit or force-push is created.
+
+
+### 0.2.1-alpha.3 Android Pull performance fix
+
+Alpha.2 introduced the correct path-aware Pull policy but its remote-change detection was too expensive on Android: it listed the entire repository and read blobs path-by-path to discover which paths changed. On the Carmina corpus this could leave Pull apparently spinning indefinitely.
+
+Alpha.3 replaces that scan with an isomorphic-git tree walk comparing the two commit trees directly. It also handles remote add/remove transitions explicitly, which matters for the 217 → U217 replacement observed in the corpus.
+
+During Pull the status bar now reports phases such as:
+
+- Preparing repository
+- Fetching GitHub
+- Checking local changes
+- Comparing GitHub changes
+- Applying N GitHub change(s)
+
+The functional policy from alpha.2 is unchanged: unrelated GitHub updates should apply while local-only edits are preserved, and same-path conflicts still require a choice during manual Pull.

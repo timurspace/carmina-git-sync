@@ -147,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.2`
+- manifest version: `0.2.1-alpha.3`
 
 BRAT prereleases contain:
 
@@ -213,3 +213,10 @@ Full record: `docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`.
 The persistent `readOnly` setting is a device-level write guard. When enabled, the explicit Push command must return before invoking the sync engine. Pull remains allowed.
 
 This is a safety feature, not a substitute for sparse-profile invariants. Even with read-only disabled, Mobile Profile Push must still fail closed if staging contains any out-of-profile path.
+
+
+## Pull implementation note — alpha.3
+
+Do not reintroduce a full-repository blob-by-blob comparison for Pull path detection. On Android, DataAdapter-backed object reads make that approach prohibitively slow. Use tree-level comparison via `git.walk` / `git.TREE` and operate only on changed paths.
+
+Remote removals must be treated explicitly: remove the path from the index and, when the local copy is not being preserved, remove it from the working copy. Remote additions/modifications reset the index to the remote ref and materialize only allowed profile paths.

@@ -150,7 +150,8 @@ export default class CarminaGitSyncPlugin extends Plugin {
 
     this.setStatus("pulling");
     let result = await this.gitSync.pullCanonical(
-      showSuccessNotice ? "prompt" : "keep-local"
+      showSuccessNotice ? "prompt" : "keep-local",
+      (detail) => this.setStatus("pulling", detail)
     );
 
     if (showSuccessNotice && result.conflictPaths?.length) {
@@ -164,7 +165,10 @@ export default class CarminaGitSyncPlugin extends Plugin {
       }
 
       this.setStatus("pulling");
-      result = await this.gitSync.pullCanonical(choice);
+      result = await this.gitSync.pullCanonical(
+        choice,
+        (detail) => this.setStatus("pulling", detail)
+      );
     }
 
     await this.finishOperation("pull", result, showSuccessNotice);
