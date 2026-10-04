@@ -177,3 +177,10 @@ Alpha.3 uses `git.walk` with the two commit trees to identify only changed paths
 This specifically covers the observed corpus transition where the old 217 path was removed and a new U217 path was added.
 
 Pull now surfaces its current phase in the status bar so a long-running operation is diagnosable instead of silently showing only a spinner.
+
+
+## Recovery from partially materialized Pull — 0.2.1-alpha.4
+
+A successful Git ancestry update is not sufficient evidence that the Android files themselves match GitHub. Alpha.4 therefore checks the mobile working copy even when the local branch already equals the fetched GitHub HEAD.
+
+Manual Pull offers an explicit GitHub/local choice for any profile path that differs. Choosing GitHub restores canonical existing files and removes stale local paths deleted upstream. This covers the observed Mamardashvili transition from the obsolete `217 — …` path to `U217 — Лекция 1.md`.
