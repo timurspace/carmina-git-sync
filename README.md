@@ -34,7 +34,9 @@ The mobile profile keeps Obsidian configuration and corpus-related files while a
 
 The full repository remains the canonical source on GitHub.
 
-The `carmina-mobile` profile is implemented in the synchronization core. It materializes only the configured mobile paths and filters normal status/staging to those paths. In addition, Push now performs a fail-closed check against the full Git status matrix before commit: if any staged path exists outside the active profile, Push stops and nothing is committed or pushed. Tracked files omitted from the Android working copy must never be converted into canonical GitHub deletions.
+The `carmina-mobile` profile is implemented in the synchronization core. It materializes only the configured mobile paths and filters normal status/staging to those paths. In addition, Push performs a fail-closed check against the full Git status matrix before commit: if any staged path exists outside the active profile, Push stops and nothing is committed or pushed. Tracked files omitted from the Android working copy must never be converted into canonical GitHub deletions.
+
+The alpha.2 sparse-deletion incident, root cause, fixes, release-versioning issue and current Android validation state are recorded in [`docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`](docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md).
 
 ## Migration from an older Git Sync vault
 
@@ -131,17 +133,35 @@ The original MIT license is preserved in `LICENSE`.
 
 This fork is currently project-specific experimental software; it is **not** submitted to the official Obsidian Community Plugins directory.
 
-## 0.2.1-alpha.1 validation
+## Current Android validation status — 2026-10-04
 
-This prerelease is intended to validate the Mobile Profile deletion fix on Android.
+The current Android test build is `0.2.1-alpha.1`.
 
-Recommended order:
+Confirmed on-device:
 
-1. install `0.2.1-alpha.1` through BRAT;
-2. enable **Read-only mode** first and confirm that Pull works while Push is blocked;
-3. disable Read-only mode only for the regression test;
-4. modify one in-profile card such as `01_Карточки/058.md`;
-5. run Push;
-6. verify the resulting GitHub commit changes the intended card and reports **zero deletions** for files omitted by the Mobile Profile.
+- BRAT installed the new build and the **Read-only mode** setting is present;
+- with Read-only enabled, Push is blocked;
+- Pull fetches the canonical remote but refuses to overwrite a locally modified card;
+- with Read-only disabled, Push fetches first and refuses to proceed when the local branch is `behind`.
 
-If Push detects any staged path outside the active sync profile, it must stop before commit/push.
+Observed Pull log with a local edit to card 058:
+
+```text
+fetched 054f0dfa
+blocked by local changes: 01_Карточки/А. Ф. Лосев; А. А. Тахо-Годи/058 — Платон. Аристотель — краткая версия фрагмента.md
+```
+
+Observed Push log after disabling Read-only:
+
+```text
+fetched 054f0dfa
+pre-push relation=behind
+```
+
+These are expected fail-safe stops. The Android vault currently has both a local modification to card 058 and a local branch behind canonical GitHub, so the plugin intentionally refuses to auto-merge or choose a winner.
+
+The original sparse-deletion regression test is therefore **not yet complete**. It still requires a clean synchronized state followed by one controlled in-profile edit and a Push whose GitHub commit contains **zero out-of-profile deletions**.
+
+Do not add card 058 to **Excluded patterns** to bypass this state. Exclusions are not a conflict-resolution mechanism.
+
+See the full incident and validation record in [`docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`](docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md).
