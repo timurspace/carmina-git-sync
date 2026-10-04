@@ -68,7 +68,7 @@ In read-only mode:
 
 Use read-only mode when the device should consume canonical GitHub changes but must not publish local changes.
 
-## Android regression test for v0.2.0-alpha.3
+## Android regression test for 0.2.1-alpha.1
 
 1. Install the prerelease through BRAT.
 2. Confirm the Mobile Profile is active.

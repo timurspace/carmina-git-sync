@@ -3,13 +3,13 @@ name: Release Obsidian Plugin
 on:
   push:
     tags:
-      - "v*"
+      - "*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Prerelease tag, for example v0.2.0-alpha.1"
+        description: "Prerelease tag; must exactly match manifest.json version"
         required: true
-        default: "v0.2.0-alpha.1"
+        default: "0.2.1-alpha.1"
 
 permissions:
   contents: write
@@ -44,6 +44,17 @@ jobs:
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          if [ "$MANIFEST_VERSION" != "${{ steps.release.outputs.tag }}" ]; then
+            echo "Release tag must exactly match manifest.json version."
+            echo "tag=${{ steps.release.outputs.tag }}"
+            echo "manifest=$MANIFEST_VERSION"
+            exit 1
           fi
 
       - name: Create prerelease
