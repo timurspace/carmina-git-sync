@@ -9,7 +9,7 @@ on:
       tag:
         description: "Prerelease tag; must exactly match manifest.json version"
         required: true
-        default: "0.2.1-alpha.2"
+        default: "0.2.1-alpha.3"
 
 permissions:
   contents: write
