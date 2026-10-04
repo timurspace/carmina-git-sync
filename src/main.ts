@@ -9,6 +9,7 @@ export default class CarminaGitSyncPlugin extends Plugin {
   settings!: PluginSettings;
   private statusBar!: StatusBarItem;
   private gitSync: GitSync | null = null;
+  private syncInProgress: "pull" | "push" | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -34,6 +35,12 @@ export default class CarminaGitSyncPlugin extends Plugin {
       id: "adopt-github-canonical",
       name: "Adopt GitHub as canonical (destructive)",
       callback: () => void this.adoptGithubAsCanonical(),
+    });
+
+    this.addCommand({
+      id: "show-last-sync-log",
+      name: "Show last sync log",
+      callback: () => this.showLastSyncLog(),
     });
 
     if (this.isConfigured()) {
@@ -148,30 +155,55 @@ export default class CarminaGitSyncPlugin extends Plugin {
       return;
     }
 
-    this.setStatus("pulling");
-    let result = await this.gitSync.pullCanonical(
-      showSuccessNotice ? "prompt" : "keep-local",
-      (detail) => this.setStatus("pulling", detail)
-    );
-
-    if (showSuccessNotice && result.conflictPaths?.length) {
-      this.setStatus("conflict", `${result.conflictPaths.length} same-file conflict(s)`);
-      const choice = await choosePullConflictResolution(this.app, result.conflictPaths);
-
-      if (choice === "cancel") {
-        this.setStatus("idle");
-        new Notice("Pull canceled. No local file was overwritten.");
-        return;
+    if (this.syncInProgress) {
+      if (showSuccessNotice) {
+        new Notice(
+          `Carmina Git Sync: ${this.syncInProgress === "pull" ? "Pull" : "Push"} is already running.`
+        );
       }
-
-      this.setStatus("pulling");
-      result = await this.gitSync.pullCanonical(
-        choice,
-        (detail) => this.setStatus("pulling", detail)
-      );
+      return;
     }
 
-    await this.finishOperation("pull", result, showSuccessNotice);
+    this.syncInProgress = "pull";
+    try {
+      this.setStatus("pulling");
+      let result = await this.gitSync.pullCanonical(
+        showSuccessNotice ? "prompt" : "keep-local",
+        (detail) => this.setStatus("pulling", detail)
+      );
+
+      if (showSuccessNotice && result.conflictPaths?.length) {
+        const firstLogs = [...result.logs];
+        this.setStatus("conflict", `${result.conflictPaths.length} local difference(s)`);
+        const choice = await choosePullConflictResolution(this.app, result.conflictPaths);
+
+        if (choice === "cancel") {
+          const logs = [...firstLogs, "DECISION Cancel Pull"];
+          await this.recordLastOperation("pull", "Pull canceled. No local file was overwritten.", logs);
+          this.setStatus("idle");
+          new Notice("Pull canceled. No local file was overwritten.");
+          return;
+        }
+
+        this.setStatus("pulling");
+        const resolved = await this.gitSync.pullCanonical(
+          choice,
+          (detail) => this.setStatus("pulling", detail)
+        );
+        result = {
+          ...resolved,
+          logs: [
+            ...firstLogs,
+            `DECISION ${choice === "use-github" ? "Use GitHub" : "Keep local"}`,
+            ...resolved.logs,
+          ],
+        };
+      }
+
+      await this.finishOperation("pull", result, showSuccessNotice);
+    } finally {
+      this.syncInProgress = null;
+    }
   }
 
   async triggerPush(): Promise<void> {
@@ -185,12 +217,24 @@ export default class CarminaGitSyncPlugin extends Plugin {
       return;
     }
 
-    const now = new Date().toISOString().replace("T", " ").slice(0, 19);
-    const message = this.settings.commitMessageTemplate.split("{{datetime}}").join(now);
+    if (this.syncInProgress) {
+      new Notice(
+        `Carmina Git Sync: ${this.syncInProgress === "pull" ? "Pull" : "Push"} is already running.`
+      );
+      return;
+    }
 
-    this.setStatus("pushing");
-    const result = await this.gitSync.pushLocalChanges(message);
-    await this.finishOperation("push", result, true);
+    this.syncInProgress = "push";
+    try {
+      const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+      const message = this.settings.commitMessageTemplate.split("{{datetime}}").join(now);
+
+      this.setStatus("pushing");
+      const result = await this.gitSync.pushLocalChanges(message);
+      await this.finishOperation("push", result, true);
+    } finally {
+      this.syncInProgress = null;
+    }
   }
 
   async adoptGithubAsCanonical(): Promise<void> {
@@ -227,11 +271,49 @@ export default class CarminaGitSyncPlugin extends Plugin {
     }
   }
 
+  private async recordLastOperation(
+    kind: "pull" | "push",
+    message: string,
+    logs: string[]
+  ): Promise<void> {
+    this.settings.lastOperationTime = Date.now();
+    this.settings.lastOperationKind = kind;
+    this.settings.lastOperationMessage = message;
+    this.settings.lastOperationLog = logs.slice(-250);
+    await this.saveSettings();
+  }
+
+  showLastSyncLog(): void {
+    const logs = this.settings.lastOperationLog ?? [];
+    if (logs.length === 0) {
+      new Notice("Carmina Git Sync: no sync log is available yet.");
+      return;
+    }
+
+    const when = this.settings.lastOperationTime
+      ? new Date(this.settings.lastOperationTime).toLocaleString()
+      : "unknown time";
+    const kind = this.settings.lastOperationKind || "sync";
+    const header = `Carmina Git Sync — last ${kind} — ${when}`;
+    const body = [
+      this.settings.lastOperationMessage,
+      "",
+      ...logs,
+    ].filter((line, index, all) => line || (index > 0 && all[index - 1] !== ""));
+
+    showLogModal(this.app, header, body);
+  }
+
   private async finishOperation(
     kind: "pull" | "push",
     result: GitOperationResult,
     showSuccessNotice: boolean
   ): Promise<void> {
+    this.settings.lastOperationTime = Date.now();
+    this.settings.lastOperationKind = kind;
+    this.settings.lastOperationMessage = result.message;
+    this.settings.lastOperationLog = result.logs.slice(-250);
+
     if (result.success) {
       if (kind === "pull") this.settings.lastPullTime = Date.now();
       if (kind === "push" && result.changed) this.settings.lastPushTime = Date.now();
@@ -241,6 +323,7 @@ export default class CarminaGitSyncPlugin extends Plugin {
       return;
     }
 
+    await this.saveSettings();
     this.setStatus("error", result.error ?? result.message);
     new Notice(`${result.message} ${result.error ?? ""}`.trim());
     showLogModal(this.app, "Carmina Git Sync", result.logs);
