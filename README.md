@@ -33,7 +33,7 @@ The mobile profile keeps Obsidian configuration and corpus-related files while a
 
 The full repository remains the canonical source on GitHub.
 
-Implementation of mobile profiles is a separate architectural task from the current synchronization core.
+The `carmina-mobile` profile is implemented in the synchronization core. It materializes only the configured mobile paths and filters Git status/staging to those paths, so tracked files omitted from the Android working copy are not interpreted or pushed as deletions.
 
 ## Migration from an older Git Sync vault
 
