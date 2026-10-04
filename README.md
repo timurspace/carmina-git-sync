@@ -210,3 +210,20 @@ Alpha.4 treats the working copy as a separate state that must also match canonic
 - **Keep local** preserves the phone copy.
 
 This recovery path is intended to repair partial alpha.2/alpha.3 states without using the destructive **Adopt GitHub as canonical** command.
+
+
+### 0.2.1-alpha.5 sync audit log
+
+Alpha.5 adds a persistent **Last sync log** for Pull/Push operations.
+
+For Pull, the log records human-readable file actions:
+
+- `ADD <path>`
+- `UPDATE <path>`
+- `DELETE <path>`
+- `RESTORE <path>`
+- `KEEP LOCAL <path>`
+
+The last operation log can be opened from plugin settings or the command palette and copied for diagnostics. Only the most recent operation is retained.
+
+Repeated Pull/Push requests are now rejected while another sync operation is still running, so multiple taps no longer start overlapping operations.
