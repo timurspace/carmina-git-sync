@@ -147,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.3`
+- manifest version: `0.2.1-alpha.4`
 
 BRAT prereleases contain:
 
@@ -220,3 +220,10 @@ This is a safety feature, not a substitute for sparse-profile invariants. Even w
 Do not reintroduce a full-repository blob-by-blob comparison for Pull path detection. On Android, DataAdapter-backed object reads make that approach prohibitively slow. Use tree-level comparison via `git.walk` / `git.TREE` and operate only on changed paths.
 
 Remote removals must be treated explicitly: remove the path from the index and, when the local copy is not being preserved, remove it from the working copy. Remote additions/modifications reset the index to the remote ref and materialize only allowed profile paths.
+
+
+## Working-copy reconciliation — alpha.4
+
+Do not assume `local HEAD == remote HEAD` implies the Obsidian working copy is canonical. Interrupted or earlier path-aware Pulls can leave profile paths stale, missing, or locally modified after the branch ref has advanced.
+
+Manual Pull must inspect working-copy differences even when ancestry is `equal`. If differences exist, it must require an explicit **Use GitHub** / **Keep local** decision. **Use GitHub** restores paths present at canonical HEAD and removes stale local paths absent from canonical HEAD.
