@@ -3,6 +3,7 @@ import { requestUrl, DataAdapter } from "obsidian";
 import { createFsAdapter } from "./fs-adapter";
 import { GIT_AUTHOR_EMAIL, GIT_AUTHOR_NAME } from "../constants";
 import { GitOperationResult } from "../types";
+import { pathMatchesProfile, SyncProfile } from "./profiles";
 
 type Relation = "equal" | "behind" | "ahead" | "diverged";
 
@@ -60,6 +61,7 @@ export class GitSync {
   private branch: string;
   private remoteUrl: string;
   private isExcluded: (filepath: string) => boolean;
+  private syncProfile: SyncProfile;
 
   constructor(
     adapter: DataAdapter,
@@ -69,7 +71,8 @@ export class GitSync {
     repoOwner: string,
     repoName: string,
     branch: string,
-    isExcluded: (filepath: string) => boolean = () => false
+    isExcluded: (filepath: string) => boolean = () => false,
+    syncProfile: SyncProfile = "full"
   ) {
     this.fs = createFsAdapter(adapter, vaultPath);
     this.dir = vaultPath;
@@ -80,6 +83,7 @@ export class GitSync {
     this.branch = branch;
     this.remoteUrl = `https://github.com/${repoOwner}/${repoName}.git`;
     this.isExcluded = isExcluded;
+    this.syncProfile = syncProfile;
   }
 
   private gitOpts() {
@@ -218,11 +222,15 @@ export class GitSync {
     return "diverged";
   }
 
+  private isProfilePath(filepath: string): boolean {
+    return pathMatchesProfile(filepath, this.syncProfile);
+  }
+
   private async statusRows(): Promise<Array<[string, number, number, number]>> {
     const matrix = await git.statusMatrix({ fs: this.fs, dir: this.dir });
-    return matrix.filter(([filepath]) => !this.isExcluded(filepath)) as Array<
-      [string, number, number, number]
-    >;
+    return matrix.filter(
+      ([filepath]) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
+    ) as Array<[string, number, number, number]>;
   }
 
   private async changedPaths(): Promise<string[]> {
@@ -243,13 +251,18 @@ export class GitSync {
     });
 
     if (!beforeHead) {
-      await git.checkout({
-        fs: this.fs,
-        dir: this.dir,
-        ref: this.branch,
-        force: true,
-      });
-      log("checked out canonical branch");
+      const tracked = await git.listFiles({ fs: this.fs, dir: this.dir, ref: afterHead });
+      const materialized = tracked.filter((filepath) => this.isProfilePath(filepath));
+      if (materialized.length > 0) {
+        await git.checkout({
+          fs: this.fs,
+          dir: this.dir,
+          ref: this.branch,
+          force: true,
+          filepaths: materialized,
+        });
+      }
+      log(`checked out canonical branch; materialized ${materialized.length} profile path(s)`);
       return;
     }
 
@@ -262,7 +275,7 @@ export class GitSync {
 
     const changed: string[] = [];
     for (const filepath of new Set([...before, ...after])) {
-      if (this.isExcluded(filepath)) continue;
+      if (!this.isProfilePath(filepath) || this.isExcluded(filepath)) continue;
       const [a, b] = await Promise.all([
         this.blobOidAt(beforeHead, filepath),
         this.blobOidAt(afterHead, filepath),
@@ -563,13 +576,19 @@ export class GitSync {
         force: true,
       });
 
-      await git.checkout({
-        fs: this.fs,
-        dir: this.dir,
-        ref: this.branch,
-        force: true,
-      });
+      const tracked = await git.listFiles({ fs: this.fs, dir: this.dir, ref: remoteHead });
+      const materialized = tracked.filter((filepath) => this.isProfilePath(filepath));
+      if (materialized.length > 0) {
+        await git.checkout({
+          fs: this.fs,
+          dir: this.dir,
+          ref: this.branch,
+          force: true,
+          filepaths: materialized,
+        });
+      }
 
+      log(`materialized ${materialized.length} profile path(s)`);
       log(
         `adopted remote=${remoteHead.slice(0, 8)} previous=${
           previousHead ? previousHead.slice(0, 8) : "none"
