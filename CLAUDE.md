@@ -81,9 +81,12 @@ Legacy conflict/queue modules may remain in the repository lineage, but they are
 Pull must:
 
 1. fetch GitHub;
-2. stop if local working-tree changes would make the operation unsafe;
-3. fast-forward only;
-4. never create an automatic merge commit.
+2. fast-forward only; never create an automatic merge commit;
+3. compare local working-tree changes with paths changed between local HEAD and remote HEAD;
+4. automatically materialize remote changes for paths without local edits;
+5. preserve local-only edits while applying unrelated GitHub changes;
+6. require an explicit choice before overwriting a path changed both locally and on GitHub during manual Pull;
+7. use the safe keep-local policy for same-path conflicts during automatic Pull on open.
 
 If histories diverge, stop and report it.
 
@@ -144,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.1`
+- manifest version: `0.2.1-alpha.2`
 
 BRAT prereleases contain:
 
@@ -200,7 +203,9 @@ Current Android validation with `0.2.1-alpha.1`:
 - with Read-only disabled, Push fetches `054f0dfa` and stops at `pre-push relation=behind`;
 - no automatic merge or force-push is attempted.
 
-The final clean-state sparse-deletion regression test has **not yet passed** because the Android vault currently has both a local card 058 edit and a branch behind GitHub. Do not record the incident as fully closed until a clean synchronized Mobile Profile Push changes the intended in-profile file and produces zero out-of-profile deletions.
+The alpha.1 test also exposed an overly broad Pull guard: one local edit blocked unrelated GitHub updates from being materialized. Version `0.2.1-alpha.2` replaces that global block with path-aware Pull while retaining fast-forward-only history and explicit same-file conflict handling.
+
+The final clean-state sparse-deletion regression test has **not yet passed**. Do not record the incident as fully closed until a clean synchronized Mobile Profile Push changes the intended in-profile file and produces zero out-of-profile deletions.
 
 Full record: `docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`.
 ## Read-only safety mode
