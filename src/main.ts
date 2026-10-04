@@ -301,11 +301,12 @@ function choosePullConflictResolution(
       modal.close();
     };
 
-    modal.titleEl.setText("Local and GitHub versions both changed");
+    modal.titleEl.setText("Local files differ from GitHub");
     modal.contentEl.createEl("p", {
       text:
-        "GitHub is canonical, but these files also have local edits on this device. " +
-        "Choose whether to replace the local version with GitHub or keep the local version. " +
+        "GitHub is canonical, but these local paths differ from the canonical state. " +
+        "This can be a phone edit, a stale file, or a file left behind by an interrupted Pull. " +
+        "Choose whether to restore the GitHub version or keep the local version. " +
         "Other non-conflicting GitHub changes will still be pulled.",
     });
 
