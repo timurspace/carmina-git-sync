@@ -2,10 +2,16 @@ import * as git from "isomorphic-git";
 import { requestUrl, DataAdapter } from "obsidian";
 import { createFsAdapter } from "./fs-adapter";
 import { GIT_AUTHOR_EMAIL, GIT_AUTHOR_NAME } from "../constants";
-import { GitOperationResult } from "../types";
+import { GitOperationResult, PullConflictPolicy } from "../types";
 import { pathMatchesProfile, SyncProfile } from "./profiles";
 
 type Relation = "equal" | "behind" | "ahead" | "diverged";
+
+type WorkingFileSnapshot = {
+  filepath: string;
+  exists: boolean;
+  content?: Buffer;
+};
 
 const gitHttp = {
   async request({ url, method, headers, body }: {
@@ -115,9 +121,10 @@ export class GitSync {
     changed: boolean,
     message: string,
     logs: string[],
-    error?: string
+    error?: string,
+    conflictPaths?: string[]
   ): GitOperationResult {
-    return { success, changed, message, logs, error };
+    return { success, changed, message, logs, error, conflictPaths };
   }
 
   async isInitialized(): Promise<boolean> {
@@ -238,6 +245,157 @@ export class GitSync {
     return rows
       .filter(([, head, workdir, stage]) => !(head === 1 && workdir === 1 && stage === 1))
       .map(([filepath]) => filepath);
+  }
+
+  private async changedPathsBetween(beforeHead: string, afterHead: string): Promise<string[]> {
+    const [before, after] = await Promise.all([
+      git.listFiles({ fs: this.fs, dir: this.dir, ref: beforeHead }),
+      git.listFiles({ fs: this.fs, dir: this.dir, ref: afterHead }),
+    ]);
+
+    const changed: string[] = [];
+    for (const filepath of new Set([...before, ...after])) {
+      const [beforeOid, afterOid] = await Promise.all([
+        this.blobOidAt(beforeHead, filepath),
+        this.blobOidAt(afterHead, filepath),
+      ]);
+      if (beforeOid !== afterOid) changed.push(filepath);
+    }
+
+    return changed;
+  }
+
+  private workingPath(filepath: string): string {
+    const base = this.dir.replace(/\/$/, "");
+    return base ? `${base}/${filepath}` : filepath;
+  }
+
+  private async snapshotWorkingFiles(filepaths: string[]): Promise<WorkingFileSnapshot[]> {
+    const snapshots: WorkingFileSnapshot[] = [];
+
+    for (const filepath of filepaths) {
+      try {
+        const data = await this.fs.promises.readFile(this.workingPath(filepath));
+        snapshots.push({
+          filepath,
+          exists: true,
+          content: typeof data === "string" ? Buffer.from(data) : Buffer.from(data),
+        });
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") throw error;
+        snapshots.push({ filepath, exists: false });
+      }
+    }
+
+    return snapshots;
+  }
+
+  private async restoreWorkingFiles(snapshots: WorkingFileSnapshot[]): Promise<void> {
+    for (const snapshot of snapshots) {
+      const path = this.workingPath(snapshot.filepath);
+      if (snapshot.exists && snapshot.content) {
+        await this.fs.promises.writeFile(path, snapshot.content);
+      } else {
+        await this.fs.promises.unlink(path);
+      }
+    }
+  }
+
+  private async fastForwardPreservingLocalChanges(
+    localHead: string,
+    remoteHead: string,
+    remoteChangedPaths: string[],
+    dirtyPaths: string[],
+    preserveLocalPaths: Set<string>,
+    log: (line: string) => void
+  ): Promise<{ materialized: number; preserved: number; overwritten: number }> {
+    const dirty = new Set(dirtyPaths);
+    const profileChanged = remoteChangedPaths.filter(
+      (filepath) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
+    );
+    const materialize = profileChanged.filter((filepath) => !preserveLocalPaths.has(filepath));
+    const overwrittenLocal = materialize.filter((filepath) => dirty.has(filepath));
+    const cleanMaterialize = materialize.filter((filepath) => !dirty.has(filepath));
+    const snapshots = await this.snapshotWorkingFiles(overwrittenLocal);
+
+    try {
+      for (const filepath of remoteChangedPaths) {
+        await git.resetIndex({
+          fs: this.fs,
+          dir: this.dir,
+          filepath,
+          ref: remoteHead,
+        });
+      }
+
+      if (materialize.length > 0) {
+        await git.checkout({
+          fs: this.fs,
+          dir: this.dir,
+          force: true,
+          filepaths: materialize,
+        });
+      }
+
+      await git.writeRef({
+        fs: this.fs,
+        dir: this.dir,
+        ref: `refs/heads/${this.branch}`,
+        value: remoteHead,
+        force: true,
+      });
+    } catch (error) {
+      try {
+        await git.writeRef({
+          fs: this.fs,
+          dir: this.dir,
+          ref: `refs/heads/${this.branch}`,
+          value: localHead,
+          force: true,
+        });
+
+        for (const filepath of remoteChangedPaths) {
+          await git.resetIndex({
+            fs: this.fs,
+            dir: this.dir,
+            filepath,
+            ref: localHead,
+          });
+        }
+
+        if (cleanMaterialize.length > 0) {
+          await git.checkout({
+            fs: this.fs,
+            dir: this.dir,
+            force: true,
+            filepaths: cleanMaterialize,
+          });
+        }
+
+        await this.restoreWorkingFiles(snapshots);
+      } catch (rollbackError) {
+        throw new Error(
+          `Pull update failed and rollback also failed: ${
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          }`
+        );
+      }
+      throw error;
+    }
+
+    const preserved = dirtyPaths.filter((filepath) => preserveLocalPaths.has(filepath)).length;
+    log(
+      `fast-forwarded ${localHead.slice(0, 8)} -> ${remoteHead.slice(0, 8)}; ` +
+      `remoteChanges=${remoteChangedPaths.length} materialized=${materialize.length} ` +
+      `preservedLocal=${preserved} overwrittenLocal=${overwrittenLocal.length}`
+    );
+
+    return {
+      materialized: materialize.length,
+      preserved,
+      overwritten: overwrittenLocal.length,
+    };
   }
 
   private async checkoutBranch(
@@ -377,7 +535,9 @@ export class GitSync {
     }
   }
 
-  async pullCanonical(): Promise<GitOperationResult> {
+  async pullCanonical(
+    conflictPolicy: PullConflictPolicy = "prompt"
+  ): Promise<GitOperationResult> {
     const logs: string[] = [];
     const log = (line: string) => logs.push(line);
 
@@ -397,33 +557,26 @@ export class GitSync {
         return this.result(true, true, "Pulled canonical GitHub state.", logs);
       }
 
-      const dirty = await this.changedPaths();
-      if (dirty.length > 0) {
-        log(`blocked by local changes: ${dirty.join(", ")}`);
-        return this.result(
-          false,
-          false,
-          "Pull stopped because the vault has local changes.",
-          logs,
-          "Push or otherwise resolve the local changes before pulling. No merge was attempted."
-        );
-      }
-
       const localHead = await git.resolveRef({
         fs: this.fs,
         dir: this.dir,
         ref: this.branch,
       });
       const relation = await this.relation(localHead, remoteHead);
-      log(`relation=${relation}`);
+      const dirty = await this.changedPaths();
+      log(`relation=${relation} localChanges=${dirty.length}`);
 
       if (relation === "equal") {
-        return this.result(true, false, "Already up to date with GitHub.", logs);
+        return this.result(
+          true,
+          false,
+          dirty.length > 0
+            ? "Already up to date with GitHub. Local changes were preserved."
+            : "Already up to date with GitHub.",
+          logs
+        );
       }
-      if (relation === "behind") {
-        await this.fastForward(localHead, remoteHead, log);
-        return this.result(true, true, "Pulled latest canonical changes from GitHub.", logs);
-      }
+
       if (relation === "ahead") {
         return this.result(
           true,
@@ -433,13 +586,84 @@ export class GitSync {
         );
       }
 
-      return this.result(
-        false,
-        false,
-        "Pull stopped because local and remote histories diverged.",
-        logs,
-        "This alpha never auto-merges. Decide which side is canonical before continuing."
+      if (relation === "diverged") {
+        return this.result(
+          false,
+          false,
+          "Pull stopped because local and remote histories diverged.",
+          logs,
+          "This alpha never auto-merges. Decide which side is canonical before continuing."
+        );
+      }
+
+      const remoteChangedPaths = await this.changedPathsBetween(localHead, remoteHead);
+      const remoteProfileChanges = new Set(
+        remoteChangedPaths.filter(
+          (filepath) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
+        )
       );
+      const conflictPaths = dirty.filter((filepath) => remoteProfileChanges.has(filepath));
+      log(
+        `remoteChanges=${remoteChangedPaths.length} profileRemoteChanges=${remoteProfileChanges.size} ` +
+        `samePathConflicts=${conflictPaths.length}`
+      );
+
+      if (conflictPaths.length > 0 && conflictPolicy === "prompt") {
+        log(`needs conflict decision: ${conflictPaths.join(", ")}`);
+        return this.result(
+          false,
+          false,
+          "GitHub and this device both changed the same file.",
+          logs,
+          "Choose whether to use the canonical GitHub version or keep the local version.",
+          conflictPaths
+        );
+      }
+
+      const conflicts = new Set(conflictPaths);
+      const preserveLocalPaths = new Set(
+        conflictPolicy === "use-github"
+          ? dirty.filter((filepath) => !conflicts.has(filepath))
+          : dirty
+      );
+
+      const applied = await this.fastForwardPreservingLocalChanges(
+        localHead,
+        remoteHead,
+        remoteChangedPaths,
+        dirty,
+        preserveLocalPaths,
+        log
+      );
+
+      if (conflictPaths.length > 0 && conflictPolicy === "use-github") {
+        return this.result(
+          true,
+          true,
+          `Pulled latest GitHub changes and replaced ${applied.overwritten} conflicting local file(s) with the canonical version.`,
+          logs
+        );
+      }
+
+      if (conflictPaths.length > 0) {
+        return this.result(
+          true,
+          true,
+          `Pulled latest GitHub changes and preserved ${applied.preserved} local file(s), including the conflicting version(s).`,
+          logs
+        );
+      }
+
+      if (dirty.length > 0) {
+        return this.result(
+          true,
+          true,
+          `Pulled latest GitHub changes while preserving ${applied.preserved} non-conflicting local change(s).`,
+          logs
+        );
+      }
+
+      return this.result(true, true, "Pulled latest canonical changes from GitHub.", logs);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`pull failed: ${message}`);
