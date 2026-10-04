@@ -271,6 +271,11 @@ export class GitSync {
     for (const filepath of filepaths) {
       const oid = await this.blobOidAt(ref, filepath);
       if (oid === null) {
+        try {
+          await git.remove({ fs: this.fs, dir: this.dir, filepath });
+        } catch {
+          // The stale path may already be absent from the index.
+        }
         await this.fs.promises.unlink(this.workingPath(filepath));
         removed += 1;
         continue;
