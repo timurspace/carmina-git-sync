@@ -303,3 +303,33 @@ Validation target for alpha.2:
 4. **Keep local** preserves the local file while other GitHub changes still arrive;
 5. newly added in-profile GitHub cards appear locally;
 6. Push safety invariants from the original incident remain unchanged.
+
+
+## Follow-up: alpha.2 Pull hang on Android
+
+After releasing `0.2.1-alpha.2`, manual Pull on Android could remain in the pulling state without completing.
+
+The repository connection itself was healthy: **Apply / connect** succeeded. The stall was therefore isolated to the new path-aware Pull processing after fetch.
+
+The alpha.2 implementation discovered remote changes by:
+
+1. listing every path in both commit trees;
+2. taking the union of all repository paths;
+3. reading the blob at both commits for each path sequentially.
+
+For a repository with hundreds of corpus files on an Obsidian Android DataAdapter, that produced excessive Git object reads and could look like an indefinite hang even when only a small number of paths changed.
+
+The real corpus state also included a remove/add transition for Mamardashvili 217, so alpha.3 additionally makes remote deletions explicit instead of relying on resetting an index path that no longer exists in the target tree.
+
+### Alpha.3 correction
+
+`0.2.1-alpha.3`:
+
+- replaces blob-by-blob repository scanning with `git.walk` over `git.TREE(localHead)` and `git.TREE(remoteHead)`;
+- returns only paths whose tree entries differ;
+- updates removed paths by removing them from the index and, when not locally preserved, from the working copy;
+- updates added/modified paths from the remote tree;
+- keeps the alpha.2 same-path conflict policy unchanged;
+- exposes Pull phases in the status bar for diagnosis.
+
+The Android regression now includes the actual state that triggered the problem: local 058 edit plus GitHub-side 217/U217 changes and additional new corpus cards.
