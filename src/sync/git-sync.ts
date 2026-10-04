@@ -507,6 +507,22 @@ export class GitSync {
         }
       }
 
+      const fullMatrix = await git.statusMatrix({ fs: this.fs, dir: this.dir });
+      const unsafeStagedPaths = fullMatrix
+        .filter(([filepath, head, , stage]) => !this.isProfilePath(filepath) && stage !== head)
+        .map(([filepath]) => filepath);
+
+      if (unsafeStagedPaths.length > 0) {
+        log(`blocked staged changes outside profile: ${unsafeStagedPaths.join(", ")}`);
+        return this.result(
+          false,
+          false,
+          "Push stopped because staged changes exist outside the active sync profile.",
+          logs,
+          "No commit or push was attempted. Pull or re-adopt the canonical GitHub state before retrying."
+        );
+      }
+
       const afterStage = await this.statusRows();
       const stagedChange = afterStage.some(([, head, , stage]) => stage !== head);
       log(`workingChanges=${dirtyRows.length} stagedChange=${stagedChange}`);
