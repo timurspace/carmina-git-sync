@@ -13,6 +13,12 @@ type WorkingFileSnapshot = {
   content?: Buffer;
 };
 
+type RemotePathChange = {
+  filepath: string;
+  beforeOid?: string;
+  afterOid?: string;
+};
+
 const gitHttp = {
   async request({ url, method, headers, body }: {
     url: string;
@@ -247,22 +253,34 @@ export class GitSync {
       .map(([filepath]) => filepath);
   }
 
-  private async changedPathsBetween(beforeHead: string, afterHead: string): Promise<string[]> {
-    const [before, after] = await Promise.all([
-      git.listFiles({ fs: this.fs, dir: this.dir, ref: beforeHead }),
-      git.listFiles({ fs: this.fs, dir: this.dir, ref: afterHead }),
-    ]);
+  private async changedPathsBetween(
+    beforeHead: string,
+    afterHead: string
+  ): Promise<RemotePathChange[]> {
+    const changes = await git.walk({
+      fs: this.fs,
+      dir: this.dir,
+      trees: [git.TREE({ ref: beforeHead }), git.TREE({ ref: afterHead })],
+      map: async (filepath, [before, after]) => {
+        if (filepath === ".") return;
 
-    const changed: string[] = [];
-    for (const filepath of new Set([...before, ...after])) {
-      const [beforeOid, afterOid] = await Promise.all([
-        this.blobOidAt(beforeHead, filepath),
-        this.blobOidAt(afterHead, filepath),
-      ]);
-      if (beforeOid !== afterOid) changed.push(filepath);
-    }
+        const [beforeType, afterType] = await Promise.all([
+          before.type(),
+          after.type(),
+        ]);
+        if (beforeType === "tree" || afterType === "tree") return;
 
-    return changed;
+        const [beforeOid, afterOid] = await Promise.all([
+          before.oid(),
+          after.oid(),
+        ]);
+        if (beforeOid === afterOid) return;
+
+        return { filepath, beforeOid, afterOid };
+      },
+    });
+
+    return changes.filter(Boolean) as RemotePathChange[];
   }
 
   private workingPath(filepath: string): string {
@@ -305,38 +323,74 @@ export class GitSync {
   private async fastForwardPreservingLocalChanges(
     localHead: string,
     remoteHead: string,
-    remoteChangedPaths: string[],
+    remoteChanges: RemotePathChange[],
     dirtyPaths: string[],
     preserveLocalPaths: Set<string>,
     log: (line: string) => void
   ): Promise<{ materialized: number; preserved: number; overwritten: number }> {
     const dirty = new Set(dirtyPaths);
-    const profileChanged = remoteChangedPaths.filter(
-      (filepath) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
+    const profileChanges = remoteChanges.filter(
+      ({ filepath }) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
     );
-    const materialize = profileChanged.filter((filepath) => !preserveLocalPaths.has(filepath));
-    const overwrittenLocal = materialize.filter((filepath) => dirty.has(filepath));
-    const cleanMaterialize = materialize.filter((filepath) => !dirty.has(filepath));
-    const snapshots = await this.snapshotWorkingFiles(overwrittenLocal);
+    const materialize = profileChanges.filter(
+      ({ filepath }) => !preserveLocalPaths.has(filepath)
+    );
+    const overwrittenLocal = materialize.filter(({ filepath }) => dirty.has(filepath));
+    const snapshots = await this.snapshotWorkingFiles(
+      overwrittenLocal.map(({ filepath }) => filepath)
+    );
 
-    try {
-      for (const filepath of remoteChangedPaths) {
-        await git.resetIndex({
-          fs: this.fs,
-          dir: this.dir,
-          filepath,
-          ref: remoteHead,
-        });
+    const setIndexToChange = async (
+      change: RemotePathChange,
+      target: "before" | "after"
+    ): Promise<void> => {
+      const oid = target === "before" ? change.beforeOid : change.afterOid;
+      const ref = target === "before" ? localHead : remoteHead;
+
+      if (oid === undefined) {
+        await git.remove({ fs: this.fs, dir: this.dir, filepath: change.filepath });
+        return;
       }
 
-      if (materialize.length > 0) {
+      await git.resetIndex({
+        fs: this.fs,
+        dir: this.dir,
+        filepath: change.filepath,
+        ref,
+      });
+    };
+
+    const applyWorkdirState = async (
+      changes: RemotePathChange[],
+      target: "before" | "after"
+    ): Promise<void> => {
+      const checkoutPaths: string[] = [];
+
+      for (const change of changes) {
+        const oid = target === "before" ? change.beforeOid : change.afterOid;
+        if (oid === undefined) {
+          await this.fs.promises.unlink(this.workingPath(change.filepath));
+        } else {
+          checkoutPaths.push(change.filepath);
+        }
+      }
+
+      if (checkoutPaths.length > 0) {
         await git.checkout({
           fs: this.fs,
           dir: this.dir,
           force: true,
-          filepaths: materialize,
+          filepaths: checkoutPaths,
         });
       }
+    };
+
+    try {
+      for (const change of remoteChanges) {
+        await setIndexToChange(change, "after");
+      }
+
+      await applyWorkdirState(materialize, "after");
 
       await git.writeRef({
         fs: this.fs,
@@ -355,24 +409,14 @@ export class GitSync {
           force: true,
         });
 
-        for (const filepath of remoteChangedPaths) {
-          await git.resetIndex({
-            fs: this.fs,
-            dir: this.dir,
-            filepath,
-            ref: localHead,
-          });
+        for (const change of remoteChanges) {
+          await setIndexToChange(change, "before");
         }
 
-        if (cleanMaterialize.length > 0) {
-          await git.checkout({
-            fs: this.fs,
-            dir: this.dir,
-            force: true,
-            filepaths: cleanMaterialize,
-          });
-        }
-
+        const cleanMaterialize = materialize.filter(
+          ({ filepath }) => !dirty.has(filepath)
+        );
+        await applyWorkdirState(cleanMaterialize, "before");
         await this.restoreWorkingFiles(snapshots);
       } catch (rollbackError) {
         throw new Error(
@@ -387,7 +431,7 @@ export class GitSync {
     const preserved = dirtyPaths.filter((filepath) => preserveLocalPaths.has(filepath)).length;
     log(
       `fast-forwarded ${localHead.slice(0, 8)} -> ${remoteHead.slice(0, 8)}; ` +
-      `remoteChanges=${remoteChangedPaths.length} materialized=${materialize.length} ` +
+      `remoteChanges=${remoteChanges.length} materialized=${materialize.length} ` +
       `preservedLocal=${preserved} overwrittenLocal=${overwrittenLocal.length}`
     );
 
@@ -536,13 +580,21 @@ export class GitSync {
   }
 
   async pullCanonical(
-    conflictPolicy: PullConflictPolicy = "prompt"
+    conflictPolicy: PullConflictPolicy = "prompt",
+    onProgress?: (detail: string) => void
   ): Promise<GitOperationResult> {
     const logs: string[] = [];
     const log = (line: string) => logs.push(line);
 
+    const phase = (detail: string) => {
+      log(`phase=${detail}`);
+      onProgress?.(detail);
+    };
+
     try {
+      phase("Preparing repository");
       await this.ensureRepository();
+      phase("Fetching GitHub");
       const remoteHead = await this.fetchRemote(log);
 
       if (!(await this.hasLocalBranch())) {
@@ -562,6 +614,7 @@ export class GitSync {
         dir: this.dir,
         ref: this.branch,
       });
+      phase("Checking local changes");
       const relation = await this.relation(localHead, remoteHead);
       const dirty = await this.changedPaths();
       log(`relation=${relation} localChanges=${dirty.length}`);
@@ -596,15 +649,18 @@ export class GitSync {
         );
       }
 
-      const remoteChangedPaths = await this.changedPathsBetween(localHead, remoteHead);
+      phase("Comparing GitHub changes");
+      const remoteChanges = await this.changedPathsBetween(localHead, remoteHead);
       const remoteProfileChanges = new Set(
-        remoteChangedPaths.filter(
-          (filepath) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
-        )
+        remoteChanges
+          .map(({ filepath }) => filepath)
+          .filter(
+            (filepath) => this.isProfilePath(filepath) && !this.isExcluded(filepath)
+          )
       );
       const conflictPaths = dirty.filter((filepath) => remoteProfileChanges.has(filepath));
       log(
-        `remoteChanges=${remoteChangedPaths.length} profileRemoteChanges=${remoteProfileChanges.size} ` +
+        `remoteChanges=${remoteChanges.length} profileRemoteChanges=${remoteProfileChanges.size} ` +
         `samePathConflicts=${conflictPaths.length}`
       );
 
@@ -627,10 +683,11 @@ export class GitSync {
           : dirty
       );
 
+      phase(`Applying ${remoteChanges.length} GitHub change(s)`);
       const applied = await this.fastForwardPreservingLocalChanges(
         localHead,
         remoteHead,
-        remoteChangedPaths,
+        remoteChanges,
         dirty,
         preserveLocalPaths,
         log
