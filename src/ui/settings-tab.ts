@@ -204,6 +204,15 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Last sync log")
+      .setDesc("Show the most recent Pull/Push audit log, including file actions such as ADD, UPDATE, DELETE and KEEP LOCAL.")
+      .addButton((button) =>
+        button.setButtonText("Show log").onClick(() => {
+          this.plugin.showLastSyncLog();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Adopt GitHub as canonical")
       .setDesc(
         "Destructive recovery/migration action. Repoints the local configured branch to GitHub and checks out GitHub's tracked files."
@@ -218,7 +227,9 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
     const fmt = (value: number) =>
       value > 0 ? new Date(value).toLocaleString() : "never";
     containerEl.createEl("p", {
-      text: `Last pull: ${fmt(settings.lastPullTime)} · Last push: ${fmt(settings.lastPushTime)}`,
+      text:
+        `Last pull: ${fmt(settings.lastPullTime)} · Last push: ${fmt(settings.lastPushTime)} · ` +
+        `Last operation: ${fmt(settings.lastOperationTime)}`,
       cls: "setting-item-description",
     });
   }
