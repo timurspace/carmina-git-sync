@@ -161,7 +161,7 @@ Release invariant:
 - `versions.json` must contain the released version;
 - a prerelease must compare newer than the version already installed by testers.
 
-The release workflow enforces tag/manifest equality. This was added after `v0.2.0-alpha.3` was published while the bundled manifest still reported `0.2.0`, so BRAT did not offer the fixed build as an update. The current Android validation release is `0.2.1-alpha.1`.
+The release workflow enforces tag/manifest equality. This was added after `v0.2.0-alpha.3` was published while the bundled manifest still reported `0.2.0`, so BRAT did not offer the fixed build as an update. The current Android validation release is `0.2.1-alpha.4`.
 
 The npm package name is inherited and is not the plugin identity.
 
