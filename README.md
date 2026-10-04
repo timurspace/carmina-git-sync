@@ -8,7 +8,7 @@ This repository is a fork in the Git Sync / `github-valut-sync` family. It keeps
 
 ## Alpha safety model
 
-Version **0.2.0 alpha** does not try to behave like Dropbox.
+Version **0.2.x alpha** does not try to behave like Dropbox.
 
 - connects to an **existing** GitHub repository; it never creates `obsidian-*`;
 - repository owner, repository name and branch are explicit settings;
@@ -62,10 +62,10 @@ To create a test prerelease without a local development environment:
 
 1. open **Actions → Release Obsidian Plugin** in this repository;
 2. choose **Run workflow**;
-3. enter the prerelease tag, for example `v0.2.0-alpha.3`;
+3. enter the prerelease tag, for example `0.2.1-alpha.1`;
 4. wait for the workflow to finish.
 
-The workflow typechecks and builds the plugin, then creates a GitHub prerelease with the three BRAT assets.
+The workflow typechecks and builds the plugin, verifies that the release tag exactly matches `manifest.json` version, then creates a GitHub prerelease with the three BRAT assets. Each prerelease must use a version greater than the previously installed version; do not publish a prerelease such as `0.2.0-alpha.N` after clients have installed `0.2.0`.
 
 ## GitHub OAuth setup
 
@@ -131,13 +131,13 @@ The original MIT license is preserved in `LICENSE`.
 
 This fork is currently project-specific experimental software; it is **not** submitted to the official Obsidian Community Plugins directory.
 
-## v0.2.0-alpha.3 validation
+## 0.2.1-alpha.1 validation
 
 This prerelease is intended to validate the Mobile Profile deletion fix on Android.
 
 Recommended order:
 
-1. install `v0.2.0-alpha.3` through BRAT;
+1. install `0.2.1-alpha.1` through BRAT;
 2. enable **Read-only mode** first and confirm that Pull works while Push is blocked;
 3. disable Read-only mode only for the regression test;
 4. modify one in-profile card such as `01_Карточки/058.md`;
