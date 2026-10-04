@@ -48,6 +48,27 @@ The mobile profile does not require:
 - Profile selection affects only the local working tree.
 - GitHub remains the canonical repository.
 
+## 2026-10-04 sparse Push incident
+
+In the alpha.2 Android test, an intended edit to card 058 was pushed together with unintended deletions of canonical files that were absent from the reduced mobile working copy.
+
+Corpus incident commit:
+
+- `8a7c5f0c` — intended card edit plus unintended sparse-profile deletions.
+
+Corpus recovery commit:
+
+- `054f0dfa` — revert restoring the canonical files.
+
+The root error was treating a missing working-copy path as sufficient evidence of deletion. In a reduced profile, absence can instead mean “not materialized on this device”.
+
+The runtime fix adds two layers:
+
+1. a direct guard against staging deletion for an out-of-profile path;
+2. a fail-closed scan of the full Git status matrix before commit, blocking Push if any staged out-of-profile path differs from HEAD.
+
+The detailed incident report is [`INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`](INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md).
+
 ## Current implementation
 
 The `carmina-mobile` profile is implemented in the sync core.
@@ -68,19 +89,59 @@ In read-only mode:
 
 Use read-only mode when the device should consume canonical GitHub changes but must not publish local changes.
 
-## Android regression test for 0.2.1-alpha.1
+## Android validation for 0.2.1-alpha.1
 
-1. Install the prerelease through BRAT.
-2. Confirm the Mobile Profile is active.
-3. Confirm canonical service/development files such as `.github/**` are absent locally.
-4. Modify an in-profile card such as `01_Карточки/058.md`.
-5. Run Push.
-6. Inspect the resulting GitHub commit.
+### Confirmed
 
-Expected result:
+The current build has been installed through BRAT and exposes the new Read-only setting.
 
-- the intended card is modified;
-- files outside the Mobile Profile are not deleted;
-- deleted canonical service files = 0.
+With Read-only enabled, Push is blocked.
+
+With a local edit to card 058, Pull reports:
+
+```text
+fetched 054f0dfa
+blocked by local changes: 01_Карточки/А. Ф. Лосев; А. А. Тахо-Годи/058 — Платон. Аристотель — краткая версия фрагмента.md
+```
+
+This confirms that Pull does not overwrite the local edit.
+
+With Read-only disabled, Push reports:
+
+```text
+fetched 054f0dfa
+pre-push relation=behind
+```
+
+This confirms that Push refuses to write when the local canonical branch is behind GitHub.
+
+### Current state
+
+The device has both:
+
+- a local working-tree modification to card 058;
+- a local canonical branch behind GitHub.
+
+Pull therefore refuses to overwrite the card, while Push refuses to write over newer canonical history. This safety deadlock must be resolved explicitly; the plugin must not auto-merge it.
+
+### Still required
+
+The original deletion regression test remains pending:
+
+1. preserve the local text of card 058;
+2. deliberately resolve the local-change/behind state;
+3. reach a clean local branch equal to GitHub;
+4. confirm Mobile Profile is active;
+5. make one controlled in-profile edit;
+6. run Push with Read-only disabled;
+7. inspect the GitHub commit.
+
+Pass criteria:
+
+- intended in-profile change only;
+- no deletion of paths omitted by Mobile Profile;
+- deleted out-of-profile canonical files = **0**.
 
 If the plugin detects staged changes outside the active profile, Push must stop before commit/push.
+
+Do not use **Excluded patterns** to hide card 058 as a way around the conflict. Exclusions and working-copy profiles have different responsibilities.
