@@ -265,14 +265,14 @@ export class GitSync {
         if (filepath === ".") return;
 
         const [beforeType, afterType] = await Promise.all([
-          before.type(),
-          after.type(),
+          before?.type(),
+          after?.type(),
         ]);
         if (beforeType === "tree" || afterType === "tree") return;
 
         const [beforeOid, afterOid] = await Promise.all([
-          before.oid(),
-          after.oid(),
+          before?.oid(),
+          after?.oid(),
         ]);
         if (beforeOid === afterOid) return;
 
