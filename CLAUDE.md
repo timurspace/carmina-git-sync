@@ -234,3 +234,15 @@ Manual Pull must inspect working-copy differences even when ancestry is `equal`.
 Every completed Pull/Push should leave a readable last-operation log. Pull materialization must log file-level actions using stable prefixes: `ADD`, `UPDATE`, `DELETE`, `RESTORE`, and `KEEP LOCAL`.
 
 Do not allow overlapping Pull/Push operations from repeated taps. A second request while sync is in progress should be rejected explicitly rather than starting another Git operation.
+
+
+## GitHub Actions runtime — 2026-10-04
+
+CI and release workflows use Node 24-compatible action majors and build with Node 24:
+
+- `actions/checkout@v7`
+- `actions/setup-node@v7`
+- `softprops/action-gh-release@v3`
+- build runtime: `node-version: "24.x"`
+
+Do not downgrade these workflows to Node 20-targeting action versions. GitHub-hosted runners now warn when Node 20 actions are forced onto Node 24.
