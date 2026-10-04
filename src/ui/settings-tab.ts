@@ -135,6 +135,16 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "Safety" });
 
     new Setting(containerEl)
+      .setName("Read-only mode")
+      .setDesc("Allow Pull, but block Push so this device cannot write changes to GitHub.")
+      .addToggle((toggle) =>
+        toggle.setValue(settings.readOnly).onChange(async (value) => {
+          settings.readOnly = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pull on open")
       .setDesc("Fetch and fast-forward from GitHub when Obsidian opens. Stops if local changes exist.")
       .addToggle((toggle) =>
