@@ -76,10 +76,13 @@ export interface SyncResult {
   logs?: string[];
 }
 
+export type PullConflictPolicy = "prompt" | "keep-local" | "use-github";
+
 export interface GitOperationResult {
   success: boolean;
   changed: boolean;
   message: string;
   error?: string;
   logs: string[];
+  conflictPaths?: string[];
 }

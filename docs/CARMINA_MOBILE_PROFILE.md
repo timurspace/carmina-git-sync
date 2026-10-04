@@ -145,3 +145,24 @@ Pass criteria:
 If the plugin detects staged changes outside the active profile, Push must stop before commit/push.
 
 Do not use **Excluded patterns** to hide card 058 as a way around the conflict. Exclusions and working-copy profiles have different responsibilities.
+
+
+## Path-aware Pull — 0.2.1-alpha.2
+
+The alpha.1 Android test showed that the previous Pull guard was too broad: any local edit blocked the entire fast-forward, so unrelated GitHub updates were fetched but not materialized into the mobile working copy.
+
+The 0.2.1-alpha.2 Pull policy is path-aware:
+
+- GitHub changed a path and the local working copy did not → update the local file automatically;
+- local-only edit on one path, GitHub changes on other paths → fast-forward and materialize the remote paths while preserving the local edit;
+- the same path changed locally and on GitHub → do not overwrite silently.
+
+For a same-path conflict, explicit manual Pull offers:
+
+- **Use GitHub** — replace the local conflicting version with the canonical GitHub version;
+- **Keep local** — preserve the local working copy, but still fast-forward the branch and pull unrelated GitHub changes;
+- **Cancel Pull** — make no Pull update.
+
+Automatic Pull on open never opens a conflict dialog. It takes the safe **Keep local** behavior for same-path conflicts while applying non-conflicting GitHub changes.
+
+This is still not an automatic merge. The plugin never combines the two file contents.

@@ -146,7 +146,7 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Pull on open")
-      .setDesc("Fetch and fast-forward from GitHub when Obsidian opens. Stops if local changes exist.")
+      .setDesc("Fetch GitHub changes on open. Non-conflicting remote updates are applied; conflicting local files are preserved.")
       .addToggle((toggle) =>
         toggle.setValue(settings.pullOnOpen).onChange(async (value) => {
           settings.pullOnOpen = value;
@@ -185,7 +185,7 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Pull from GitHub")
-      .setDesc("Fetch and fast-forward only. Never creates a merge commit.")
+      .setDesc("Fetch canonical GitHub changes without merge commits. Only same-file local/remote edits require a choice.")
       .addButton((button) =>
         button.setButtonText("Pull").onClick(async () => {
           await this.plugin.triggerPull();
