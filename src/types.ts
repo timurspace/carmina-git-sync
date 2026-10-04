@@ -11,6 +11,10 @@ export interface PluginSettings {
   syncProfile: "full" | "carmina-mobile";
   lastPullTime: number;
   lastPushTime: number;
+  lastOperationTime: number;
+  lastOperationKind: string;
+  lastOperationMessage: string;
+  lastOperationLog: string[];
   commitMessageTemplate: string;
 }
 
@@ -29,6 +33,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   syncProfile: "full",
   lastPullTime: 0,
   lastPushTime: 0,
+  lastOperationTime: 0,
+  lastOperationKind: "",
+  lastOperationMessage: "",
+  lastOperationLog: [],
   commitMessageTemplate: "obsidian: {{datetime}}",
 };
 
