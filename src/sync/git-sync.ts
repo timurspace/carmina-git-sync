@@ -253,6 +253,56 @@ export class GitSync {
       .map(([filepath]) => filepath);
   }
 
+  private async workingChangedPaths(): Promise<string[]> {
+    const rows = await this.statusRows();
+    return rows
+      .filter(([, head, workdir]) => head !== workdir)
+      .map(([filepath]) => filepath);
+  }
+
+  private async reconcileWorkingPathsToRef(
+    filepaths: string[],
+    ref: string,
+    log: (line: string) => void
+  ): Promise<{ restored: number; removed: number }> {
+    const restore: string[] = [];
+    let removed = 0;
+
+    for (const filepath of filepaths) {
+      const oid = await this.blobOidAt(ref, filepath);
+      if (oid === null) {
+        try {
+          await git.remove({ fs: this.fs, dir: this.dir, filepath });
+        } catch {
+          // The stale path may already be absent from the index.
+        }
+        await this.fs.promises.unlink(this.workingPath(filepath));
+        removed += 1;
+        continue;
+      }
+
+      await git.resetIndex({
+        fs: this.fs,
+        dir: this.dir,
+        filepath,
+        ref,
+      });
+      restore.push(filepath);
+    }
+
+    if (restore.length > 0) {
+      await git.checkout({
+        fs: this.fs,
+        dir: this.dir,
+        force: true,
+        filepaths: restore,
+      });
+    }
+
+    log(`reconciled working copy to ${ref.slice(0, 8)}: restored=${restore.length} removed=${removed}`);
+    return { restored: restore.length, removed };
+  }
+
   private async changedPathsBetween(
     beforeHead: string,
     afterHead: string
@@ -616,16 +666,41 @@ export class GitSync {
       });
       phase("Checking local changes");
       const relation = await this.relation(localHead, remoteHead);
-      const dirty = await this.changedPaths();
-      log(`relation=${relation} localChanges=${dirty.length}`);
+      const dirty = await this.workingChangedPaths();
+      log(`relation=${relation} localWorkingChanges=${dirty.length}`);
 
       if (relation === "equal") {
+        if (dirty.length === 0) {
+          return this.result(true, false, "Already up to date with GitHub.", logs);
+        }
+
+        if (conflictPolicy === "prompt") {
+          log(`working copy differs from canonical HEAD: ${dirty.join(", ")}`);
+          return this.result(
+            false,
+            false,
+            "GitHub is up to date, but local files still differ from the canonical version.",
+            logs,
+            "Choose whether to restore these local paths from GitHub or keep the local versions.",
+            dirty
+          );
+        }
+
+        if (conflictPolicy === "use-github") {
+          phase(`Restoring ${dirty.length} local path(s) from GitHub`);
+          const reconciled = await this.reconcileWorkingPathsToRef(dirty, remoteHead, log);
+          return this.result(
+            true,
+            true,
+            `Restored ${reconciled.restored} local file(s) from GitHub and removed ${reconciled.removed} stale local file(s).`,
+            logs
+          );
+        }
+
         return this.result(
           true,
           false,
-          dirty.length > 0
-            ? "Already up to date with GitHub. Local changes were preserved."
-            : "Already up to date with GitHub.",
+          `GitHub is up to date. Preserved ${dirty.length} local working-copy difference(s).`,
           logs
         );
       }

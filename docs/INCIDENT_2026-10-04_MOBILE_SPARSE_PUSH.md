@@ -333,3 +333,24 @@ The real corpus state also included a remove/add transition for Mamardashvili 21
 - exposes Pull phases in the status bar for diagnosis.
 
 The Android regression now includes the actual state that triggered the problem: local 058 edit plus GitHub-side 217/U217 changes and additional new corpus cards.
+
+
+## Follow-up: stale working copy after HEAD already matched GitHub
+
+After alpha.3 completed Pull, the Android vault still showed an obsolete Mamardashvili file named `217 — …`. The current canonical repository no longer contains that path; it contains `U217 — Лекция 1.md`.
+
+The obsolete file itself already had frontmatter `id: U217` in the earlier canonical history, so the filename/frontmatter mismatch was a corpus defect that has since been corrected upstream. Its continued presence on Android therefore proved that the mobile working copy had not been fully reconciled.
+
+A second state-model issue was identified: an earlier automatic or interrupted path-aware Pull can advance local Git HEAD to the canonical GitHub commit while preserving or leaving stale working-tree files. A later Pull then sees `HEAD == GitHub` and can incorrectly stop without repairing the working copy.
+
+### Alpha.4 correction
+
+`0.2.1-alpha.4` separates Git ancestry from working-copy state:
+
+- Pull still fetches and checks ancestry;
+- when local HEAD equals GitHub, it also checks profile-path working-tree differences;
+- manual Pull prompts before replacing local differences;
+- **Use GitHub** restores canonical files and removes stale local paths absent from HEAD;
+- **Keep local** preserves local content.
+
+This also provides a non-destructive recovery route for devices left in a partially materialized state by previous alpha builds.

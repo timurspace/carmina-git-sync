@@ -1,7 +1,7 @@
 {
   "id": "carmina-git-sync",
   "name": "Carmina Git Sync",
-  "version": "0.2.1-alpha.3",
+  "version": "0.2.1-alpha.4",
   "minAppVersion": "1.0.1",
   "description": "Conservative GitHub-canonical working-copy sync for Obsidian, including mobile.",
   "author": "timurspace; based on Git Sync by Livan Kumar and contributors",

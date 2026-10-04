@@ -196,3 +196,17 @@ During Pull the status bar now reports phases such as:
 - Applying N GitHub change(s)
 
 The functional policy from alpha.2 is unchanged: unrelated GitHub updates should apply while local-only edits are preserved, and same-path conflicts still require a choice during manual Pull.
+
+
+### 0.2.1-alpha.4 working-copy reconciliation
+
+Alpha.3 can complete a path-aware Pull, but an earlier interrupted/partial Pull may already have advanced the local Git branch while leaving stale files in the Android working copy. In that state a later Pull sees `local HEAD == GitHub` and, without an extra check, can incorrectly report that everything is current.
+
+Alpha.4 treats the working copy as a separate state that must also match canonical GitHub:
+
+- when HEAD equals GitHub and the mobile working copy is clean, Pull reports up to date;
+- when HEAD equals GitHub but local profile paths differ, manual Pull asks whether to **Use GitHub** or **Keep local**;
+- **Use GitHub** restores missing/stale files from canonical HEAD and removes stale local files that no longer exist in GitHub;
+- **Keep local** preserves the phone copy.
+
+This recovery path is intended to repair partial alpha.2/alpha.3 states without using the destructive **Adopt GitHub as canonical** command.
