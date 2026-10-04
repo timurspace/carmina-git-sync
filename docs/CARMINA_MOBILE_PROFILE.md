@@ -166,3 +166,14 @@ For a same-path conflict, explicit manual Pull offers:
 Automatic Pull on open never opens a conflict dialog. It takes the safe **Keep local** behavior for same-path conflicts while applying non-conflicting GitHub changes.
 
 This is still not an automatic merge. The plugin never combines the two file contents.
+
+
+## Android Pull performance follow-up — 0.2.1-alpha.3
+
+The first path-aware implementation in alpha.2 compared commits by enumerating the entire repository and reading each file blob. That approach is correct in principle but too expensive for the Android DataAdapter-backed repository and can make Pull appear to hang.
+
+Alpha.3 uses `git.walk` with the two commit trees to identify only changed paths. It also distinguishes remote additions, modifications and removals when updating the index and mobile working copy.
+
+This specifically covers the observed corpus transition where the old 217 path was removed and a new U217 path was added.
+
+Pull now surfaces its current phase in the status bar so a long-running operation is diagnosable instead of silently showing only a spinner.
