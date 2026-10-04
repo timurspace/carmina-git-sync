@@ -117,6 +117,7 @@ export default class CarminaGitSyncPlugin extends Plugin {
       repoOwner,
       repoName,
       branch,
+      syncProfile,
     } = this.settings;
 
     if (!githubToken || !githubUsername || !repoOwner || !repoName || !branch) {
@@ -136,7 +137,8 @@ export default class CarminaGitSyncPlugin extends Plugin {
       repoOwner,
       repoName,
       branch,
-      (path) => this.isExcluded(path)
+      (path) => this.isExcluded(path),
+      syncProfile
     );
   }
 

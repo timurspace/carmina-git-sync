@@ -28,3 +28,15 @@ export const SYNC_PROFILES: SyncProfileDefinition[] = [
     includePaths: CARMINA_MOBILE_PATHS,
   },
 ];
+
+export function pathMatchesProfile(path: string, profile: SyncProfile): boolean {
+  if (profile === "full") return true;
+
+  return CARMINA_MOBILE_PATHS.some((pattern) => {
+    if (pattern.endsWith("/**")) {
+      const prefix = pattern.slice(0, -3);
+      return path === prefix || path.startsWith(`${prefix}/`);
+    }
+    return path === pattern;
+  });
+}
