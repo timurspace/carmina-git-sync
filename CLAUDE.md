@@ -53,7 +53,7 @@ A `syncProfile` setting exists with:
 
 The settings UI exposes the selector.
 
-At this stage the selector is **configuration/UI foundation only**. Sparse working-tree behavior is not yet implemented in `GitSync`. The intended mobile paths are defined in `src/sync/profiles.ts` and documented in `docs/CARMINA_MOBILE_PROFILE.md`.
+The `carmina-mobile` profile is implemented in `GitSync`. The intended mobile paths are defined in `src/sync/profiles.ts` and documented in `docs/CARMINA_MOBILE_PROFILE.md`.
 
 Critical invariant for the future implementation:
 
@@ -91,12 +91,14 @@ If histories diverge, stop and report it.
 
 Push must:
 
-1. fetch GitHub first;
-2. refuse if the remote is ahead/diverged;
-3. stage non-excluded local changes, including deletions;
-4. create a commit only if needed;
-5. verify local history is safely ahead;
-6. push with `force: false`.
+1. stop before sync work if device Read-only mode is enabled;
+2. fetch GitHub first;
+3. refuse if the remote is ahead/diverged;
+4. stage only allowed profile/non-excluded local changes;
+5. inspect the full Git status matrix before commit and abort if any staged path exists outside the active sync profile;
+6. create a commit only if needed;
+7. verify local history is safely ahead;
+8. push with `force: false`.
 
 Never silently resolve divergence.
 
@@ -134,7 +136,7 @@ The default is:
 
 These patterns prevent paths from being staged/pushed by normal synchronization.
 
-Do not confuse this mechanism with the future Carmina Mobile profile. A profile controls which canonical paths should be materialized in a device working copy; an exclusion controls paths ignored by Git operations.
+Do not confuse this mechanism with the Carmina Mobile profile. A profile controls which canonical paths are materialized in a device working copy; an exclusion controls paths ignored by Git operations.
 
 ## Naming and release files
 
@@ -165,3 +167,9 @@ For any behavioral change:
 7. do not mix unrelated reformatting into functional changes.
 
 For sparse/mobile work specifically, test the deletion invariant before merging: excluded canonical files must not appear as local deletions during Push.
+
+## Read-only safety mode
+
+The persistent `readOnly` setting is a device-level write guard. When enabled, the explicit Push command must return before invoking the sync engine. Pull remains allowed.
+
+This is a safety feature, not a substitute for sparse-profile invariants. Even with read-only disabled, Mobile Profile Push must still fail closed if staging contains any out-of-profile path.

@@ -15,6 +15,7 @@ Version **0.2.0 alpha** does not try to behave like Dropbox.
 - default target is `timurspace/carmina-et-sententiae`, branch `main`;
 - Pull is fetch + **fast-forward only**;
 - Push is an explicit user action;
+- optional **Read-only mode** blocks Push on a device while keeping Pull available;
 - Push always fetches first and refuses when GitHub has moved incompatibly;
 - no automatic merge;
 - no force-push;
@@ -33,7 +34,7 @@ The mobile profile keeps Obsidian configuration and corpus-related files while a
 
 The full repository remains the canonical source on GitHub.
 
-The `carmina-mobile` profile is implemented in the synchronization core. It materializes only the configured mobile paths and filters Git status/staging to those paths, so tracked files omitted from the Android working copy are not interpreted or pushed as deletions.
+The `carmina-mobile` profile is implemented in the synchronization core. It materializes only the configured mobile paths and filters normal status/staging to those paths. In addition, Push now performs a fail-closed check against the full Git status matrix before commit: if any staged path exists outside the active profile, Push stops and nothing is committed or pushed. Tracked files omitted from the Android working copy must never be converted into canonical GitHub deletions.
 
 ## Migration from an older Git Sync vault
 
@@ -61,7 +62,7 @@ To create a test prerelease without a local development environment:
 
 1. open **Actions → Release Obsidian Plugin** in this repository;
 2. choose **Run workflow**;
-3. keep or enter a tag such as `v0.2.0-alpha.1`;
+3. enter the prerelease tag, for example `v0.2.0-alpha.3`;
 4. wait for the workflow to finish.
 
 The workflow typechecks and builds the plugin, then creates a GitHub prerelease with the three BRAT assets.
@@ -100,11 +101,13 @@ If the local Git history is unrelated to the canonical repository, normal attach
 **Pull from GitHub** is the normal operation, especially after editing cards directly on GitHub.
 
 **Push local changes** is deliberate. It:
-1. fetches current GitHub state;
-2. refuses to continue if GitHub moved incompatibly;
-3. stages all non-excluded local changes, including rename/delete;
-4. creates one commit if needed;
-5. pushes without force.
+1. stops immediately when **Read-only mode** is enabled;
+2. fetches current GitHub state;
+3. refuses to continue if GitHub moved incompatibly;
+4. stages only allowed profile/non-excluded local changes;
+5. checks the full staging matrix and aborts if any staged path exists outside the active sync profile;
+6. creates one commit if needed;
+7. pushes without force.
 
 The status-bar item triggers Pull, not Push.
 
@@ -127,3 +130,18 @@ Based on **Git Sync** by Livan Kumar (`livan116/github-valut-sync`) under the MI
 The original MIT license is preserved in `LICENSE`.
 
 This fork is currently project-specific experimental software; it is **not** submitted to the official Obsidian Community Plugins directory.
+
+## v0.2.0-alpha.3 validation
+
+This prerelease is intended to validate the Mobile Profile deletion fix on Android.
+
+Recommended order:
+
+1. install `v0.2.0-alpha.3` through BRAT;
+2. enable **Read-only mode** first and confirm that Pull works while Push is blocked;
+3. disable Read-only mode only for the regression test;
+4. modify one in-profile card such as `01_Карточки/058.md`;
+5. run Push;
+6. verify the resulting GitHub commit changes the intended card and reports **zero deletions** for files omitted by the Mobile Profile.
+
+If Push detects any staged path outside the active sync profile, it must stop before commit/push.
