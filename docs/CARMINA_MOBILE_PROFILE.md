@@ -184,3 +184,12 @@ Pull now surfaces its current phase in the status bar so a long-running operatio
 A successful Git ancestry update is not sufficient evidence that the Android files themselves match GitHub. Alpha.4 therefore checks the mobile working copy even when the local branch already equals the fetched GitHub HEAD.
 
 Manual Pull offers an explicit GitHub/local choice for any profile path that differs. Choosing GitHub restores canonical existing files and removes stale local paths deleted upstream. This covers the observed Mamardashvili transition from the obsolete `217 — …` path to `U217 — Лекция 1.md`.
+
+
+## Sync audit log — 0.2.1-alpha.5
+
+The Android settings page now exposes **Last sync log**. It records the most recent synchronization result and file-level actions, including additions, updates, deletions, restored canonical files and locally preserved files.
+
+This is intended both for user verification and regression diagnosis: a Pull should be auditable without manually comparing the entire vault after each run.
+
+Concurrent Pull/Push requests are blocked while a sync operation is already in progress.
