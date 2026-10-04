@@ -354,3 +354,12 @@ A second state-model issue was identified: an earlier automatic or interrupted p
 - **Keep local** preserves local content.
 
 This also provides a non-destructive recovery route for devices left in a partially materialized state by previous alpha builds.
+
+
+## Follow-up: operation observability in alpha.5
+
+During Android validation, Pull sometimes completed only after repeated user taps, and successful operations did not expose which files were actually materialized or removed.
+
+`0.2.1-alpha.5` adds a persistent last-operation audit log with explicit file actions (`ADD`, `UPDATE`, `DELETE`, `RESTORE`, `KEEP LOCAL`) and blocks overlapping Pull/Push requests.
+
+This does not change the canonical-state rules; it makes their actual effects visible and easier to verify.
