@@ -8,7 +8,8 @@ Affected test channel:
 
 - `v0.2.0-alpha.2` — incident reproduced;
 - `v0.2.0-alpha.3` — runtime fix released, but BRAT did not offer it as an update because its bundled `manifest.json` still reported `0.2.0`;
-- `0.2.1-alpha.1` — current Android validation build with corrected BRAT-visible versioning.
+- `0.2.1-alpha.1` — first Android validation build with corrected BRAT-visible versioning;
+- `0.2.1-alpha.2` — path-aware Pull follow-up: unrelated GitHub changes can update while local-only edits are preserved.
 
 ## Summary
 
@@ -115,7 +116,7 @@ Push still:
 4. never auto-merges;
 5. never force-pushes.
 
-Pull remains fast-forward only and refuses to overwrite local working-tree changes.
+Pull remains fast-forward only. Starting with `0.2.1-alpha.2`, unrelated local changes no longer block the entire Pull: remote-only paths update automatically, local-only edits are preserved, and a same-path local/remote change requires an explicit decision before overwrite during manual Pull.
 
 ## Release/versioning problem discovered during the fix
 
@@ -254,7 +255,7 @@ Any future change to mobile synchronization must preserve all of the following:
 4. out-of-profile staged changes must block commit/push;
 5. no force-push;
 6. no automatic merge;
-7. Pull must not overwrite local changes;
+7. Pull must not overwrite a same-path local change without explicit user choice;
 8. Read-only must remain an explicit device-level Push guard;
 9. prerelease tag, `manifest.json.version` and `versions.json` must stay consistent.
 
@@ -269,3 +270,36 @@ Any future change to mobile synchronization must preserve all of the following:
 - `.github/workflows/release.yml`
 - `manifest.json`
 - `versions.json`
+
+
+## Follow-up: path-aware Pull in 0.2.1-alpha.2
+
+The first Android validation exposed a separate usability problem after the deletion incident was fixed.
+
+Observed state:
+
+- card 058 had a local phone edit;
+- GitHub was ahead;
+- another existing card, 217, had a newer canonical GitHub version;
+- Pull fetched GitHub but stopped globally because 058 was dirty;
+- therefore the unrelated newer 217 was not materialized locally.
+
+This behavior was safe but too conservative for the canonical-GitHub workflow.
+
+The 0.2.1-alpha.2 patch changes Pull from a vault-wide dirty check to a path-aware fast-forward:
+
+- unchanged local path + changed GitHub path → GitHub version is materialized automatically;
+- local-only changed path + unrelated GitHub changes → local edit is preserved and unrelated GitHub changes are materialized;
+- same path changed locally and on GitHub → manual Pull asks whether to **Use GitHub** or **Keep local**; no content merge is attempted;
+- automatic Pull on open uses **Keep local** for same-path conflicts and continues with unrelated changes.
+
+The implementation updates the Git index to the fetched fast-forward target, materializes only allowed profile paths, and preserves local working-tree content for chosen local paths. The branch ref moves only after the working-copy/index update succeeds; failure attempts rollback to the previous local HEAD.
+
+Validation target for alpha.2:
+
+1. local 058 edited; GitHub 217 newer → 217 updates, 058 remains local;
+2. same card changed on both sides → explicit conflict choice appears;
+3. **Use GitHub** overwrites only the chosen conflicting local file;
+4. **Keep local** preserves the local file while other GitHub changes still arrive;
+5. newly added in-profile GitHub cards appear locally;
+6. Push safety invariants from the original incident remain unchanged.
