@@ -13,7 +13,7 @@ Version **0.2.x alpha** does not try to behave like Dropbox.
 - connects to an **existing** GitHub repository; it never creates `obsidian-*`;
 - repository owner, repository name and branch are explicit settings;
 - default target is `timurspace/carmina-et-sententiae`, branch `main`;
-- Pull is fetch + **fast-forward only**;
+- Pull is fetch + **fast-forward only**, with path-aware working-copy updates;
 - Push is an explicit user action;
 - optional **Read-only mode** blocks Push on a device while keeping Pull available;
 - Push always fetches first and refuses when GitHub has moved incompatibly;
@@ -24,7 +24,7 @@ Version **0.2.x alpha** does not try to behave like Dropbox.
 - optional Pull on open is enabled by default;
 - rename/delete are discovered from the complete Git status at Push time, not from a fragile event queue.
 
-If local and remote histories diverge, the plugin stops and asks the user to choose a recovery path.
+If local and remote histories diverge, the plugin stops and asks the user to choose a recovery path. Local working-tree edits no longer block unrelated GitHub updates: Pull updates non-conflicting paths, preserves local-only edits, and asks before replacing a file changed both locally and on GitHub.
 
 ## Carmina Mobile Profile
 
@@ -100,7 +100,7 @@ If the local Git history is unrelated to the canonical repository, normal attach
 
 ## Daily use
 
-**Pull from GitHub** is the normal operation, especially after editing cards directly on GitHub.
+**Pull from GitHub** is the normal operation, especially after editing cards directly on GitHub. If a local file is unchanged, a newer GitHub version replaces it automatically. If a different file has a local edit, that local edit is preserved while GitHub changes are pulled. If the same path changed both locally and on GitHub, manual Pull asks whether to **Use GitHub**, **Keep local**, or cancel.
 
 **Push local changes** is deliberate. It:
 1. stops immediately when **Read-only mode** is enabled;
@@ -133,7 +133,7 @@ The original MIT license is preserved in `LICENSE`.
 
 This fork is currently project-specific experimental software; it is **not** submitted to the official Obsidian Community Plugins directory.
 
-## Current Android validation status — 2026-10-04
+## Android validation history and 0.2.1-alpha.2 target
 
 The current Android test build is `0.2.1-alpha.1`.
 
@@ -165,3 +165,17 @@ The original sparse-deletion regression test is therefore **not yet complete**. 
 Do not add card 058 to **Excluded patterns** to bypass this state. Exclusions are not a conflict-resolution mechanism.
 
 See the full incident and validation record in [`docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`](docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md).
+
+
+### 0.2.1-alpha.2 path-aware Pull validation
+
+Release target: `0.2.1-alpha.2`.
+
+This build changes the overly conservative alpha.1 Pull behavior. Validation must cover:
+
+1. local card 058 modified; a different existing card such as 217 updated on GitHub → Pull updates 217 and preserves 058;
+2. the same card modified both locally and on GitHub → manual Pull shows an explicit choice;
+3. **Use GitHub** replaces the local conflicting file with the canonical GitHub version;
+4. **Keep local** preserves the phone copy while still pulling unrelated GitHub changes;
+5. a newly added in-profile card on GitHub appears locally;
+6. no merge commit or force-push is created.
