@@ -149,7 +149,24 @@ export default class CarminaGitSyncPlugin extends Plugin {
     }
 
     this.setStatus("pulling");
-    const result = await this.gitSync.pullCanonical();
+    let result = await this.gitSync.pullCanonical(
+      showSuccessNotice ? "prompt" : "keep-local"
+    );
+
+    if (showSuccessNotice && result.conflictPaths?.length) {
+      this.setStatus("conflict", `${result.conflictPaths.length} same-file conflict(s)`);
+      const choice = await choosePullConflictResolution(this.app, result.conflictPaths);
+
+      if (choice === "cancel") {
+        this.setStatus("idle");
+        new Notice("Pull canceled. No local file was overwritten.");
+        return;
+      }
+
+      this.setStatus("pulling");
+      result = await this.gitSync.pullCanonical(choice);
+    }
+
     await this.finishOperation("pull", result, showSuccessNotice);
   }
 
@@ -260,4 +277,63 @@ function showLogModal(
   };
 
   modal.open();
+}
+
+
+type PullConflictChoice = "use-github" | "keep-local" | "cancel";
+
+function choosePullConflictResolution(
+  app: import("obsidian").App,
+  paths: string[]
+): Promise<PullConflictChoice> {
+  return new Promise((resolve) => {
+    const modal = new Modal(app);
+    let settled = false;
+
+    const finish = (choice: PullConflictChoice) => {
+      if (settled) return;
+      settled = true;
+      resolve(choice);
+      modal.close();
+    };
+
+    modal.titleEl.setText("Local and GitHub versions both changed");
+    modal.contentEl.createEl("p", {
+      text:
+        "GitHub is canonical, but these files also have local edits on this device. " +
+        "Choose whether to replace the local version with GitHub or keep the local version. " +
+        "Other non-conflicting GitHub changes will still be pulled.",
+    });
+
+    const list = modal.contentEl.createEl("ul");
+    for (const path of paths.slice(0, 10)) {
+      list.createEl("li", { text: path });
+    }
+    if (paths.length > 10) {
+      list.createEl("li", { text: `…and ${paths.length - 10} more` });
+    }
+
+    const actions = modal.contentEl.createDiv();
+    actions.style.cssText =
+      "display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;justify-content:flex-end;";
+
+    const keepLocal = actions.createEl("button", { text: "Keep local" });
+    keepLocal.onclick = () => finish("keep-local");
+
+    const useGithub = actions.createEl("button", { text: "Use GitHub" });
+    useGithub.addClass("mod-cta");
+    useGithub.onclick = () => finish("use-github");
+
+    const cancel = actions.createEl("button", { text: "Cancel Pull" });
+    cancel.onclick = () => finish("cancel");
+
+    modal.onClose = () => {
+      if (!settled) {
+        settled = true;
+        resolve("cancel");
+      }
+    };
+
+    modal.open();
+  });
 }
