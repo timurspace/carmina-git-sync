@@ -154,6 +154,11 @@ export default class CarminaGitSyncPlugin extends Plugin {
   }
 
   async triggerPush(): Promise<void> {
+    if (this.settings.readOnly) {
+      new Notice("Carmina Git Sync: read-only mode is enabled. Push is blocked.");
+      return;
+    }
+
     if (!this.gitSync) {
       new Notice("Carmina Git Sync: connect and apply repository settings first.");
       return;

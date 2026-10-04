@@ -6,6 +6,7 @@ export interface PluginSettings {
   repoName: string;
   branch: string;
   pullOnOpen: boolean;
+  readOnly: boolean;
   excludePatterns: string[];
   syncProfile: "full" | "carmina-mobile";
   lastPullTime: number;
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   repoName: "carmina-et-sententiae",
   branch: "main",
   pullOnOpen: true,
+  readOnly: false,
   excludePatterns: [
     ".obsidian/*",
   ],
