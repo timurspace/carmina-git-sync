@@ -55,7 +55,7 @@ The settings UI exposes the selector.
 
 The `carmina-mobile` profile is implemented in `GitSync`. The intended mobile paths are defined in `src/sync/profiles.ts` and documented in `docs/CARMINA_MOBILE_PROFILE.md`.
 
-Critical invariant for the future implementation:
+Critical invariant for the current implementation:
 
 > Paths excluded by the mobile working profile are absent locally, not deleted canonically.
 
@@ -144,13 +144,21 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.0`
+- manifest version: `0.2.1-alpha.1`
 
 BRAT prereleases contain:
 
 - `main.js`
 - `manifest.json`
 - `versions.json`
+
+Release invariant:
+
+- the release tag must exactly equal `manifest.json.version`;
+- `versions.json` must contain the released version;
+- a prerelease must compare newer than the version already installed by testers.
+
+The release workflow enforces tag/manifest equality. This was added after `v0.2.0-alpha.3` was published while the bundled manifest still reported `0.2.0`, so BRAT did not offer the fixed build as an update. The current Android validation release is `0.2.1-alpha.1`.
 
 The npm package name is inherited and is not the plugin identity.
 
@@ -168,6 +176,33 @@ For any behavioral change:
 
 For sparse/mobile work specifically, test the deletion invariant before merging: excluded canonical files must not appear as local deletions during Push.
 
+## 2026-10-04 mobile sparse Push incident
+
+The alpha.2 Android test exposed a critical sparse-working-copy bug: an intended edit to card 058 was committed together with deletions of canonical files that were merely absent from the Mobile Profile working copy.
+
+Corpus incident/recovery:
+
+- `8a7c5f0c` — faulty Push commit;
+- `054f0dfa` — revert restoring canonical files.
+
+Runtime hardening in PR #7 added:
+
+1. an out-of-profile sparse-deletion guard;
+2. a full Git status-matrix check that fails closed if any out-of-profile path is staged;
+3. persistent Read-only mode blocking explicit Push before sync work.
+
+Important implementation detail: `statusRows()` is already profile-filtered. Therefore the full-matrix pre-commit check is the defense-in-depth control that catches unsafe staged state outside the profile.
+
+Current Android validation with `0.2.1-alpha.1`:
+
+- Read-only Push block confirmed;
+- Pull with a local edit to card 058 fetches `054f0dfa` and stops with `blocked by local changes`;
+- with Read-only disabled, Push fetches `054f0dfa` and stops at `pre-push relation=behind`;
+- no automatic merge or force-push is attempted.
+
+The final clean-state sparse-deletion regression test has **not yet passed** because the Android vault currently has both a local card 058 edit and a branch behind GitHub. Do not record the incident as fully closed until a clean synchronized Mobile Profile Push changes the intended in-profile file and produces zero out-of-profile deletions.
+
+Full record: `docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`.
 ## Read-only safety mode
 
 The persistent `readOnly` setting is a device-level write guard. When enabled, the explicit Push command must return before invoking the sync engine. Pull remains allowed.
