@@ -24,6 +24,46 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
       cls: "setting-item-description",
     });
 
+    containerEl.createEl("h3", { text: "Sync actions" });
+
+    new Setting(containerEl)
+      .setName("Pull from GitHub")
+      .setDesc("Get the latest GitHub changes. Conflicting edits require a choice.")
+      .addButton((button) =>
+        button.setButtonText("Pull").onClick(async () => {
+          await this.plugin.triggerPull();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Push local changes")
+      .setDesc("Send your local edits after safety checks. Never force-pushes.")
+      .addButton((button) =>
+        button.setButtonText("Push").onClick(async () => {
+          await this.plugin.triggerPush();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Last sync log")
+      .setDesc("View the most recent Pull/Push result and changed-file log.")
+      .addButton((button) =>
+        button.setButtonText("Show log").onClick(() => {
+          this.plugin.showLastSyncLog();
+        })
+      );
+
+    const fmt = (value: number) =>
+      value > 0 ? new Date(value).toLocaleString() : "never";
+    containerEl.createEl("p", {
+      text:
+        `Last pull: ${fmt(settings.lastPullTime)} · Last push: ${fmt(settings.lastPushTime)} · ` +
+        `Last operation: ${fmt(settings.lastOperationTime)}`,
+      cls: "setting-item-description",
+    });
+
     containerEl.createEl("h3", { text: "Repository" });
 
     new Setting(containerEl)
@@ -181,36 +221,7 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "Manual operations" });
-
-    new Setting(containerEl)
-      .setName("Pull from GitHub")
-      .setDesc("Fetch canonical GitHub changes without merge commits. Only same-file local/remote edits require a choice.")
-      .addButton((button) =>
-        button.setButtonText("Pull").onClick(async () => {
-          await this.plugin.triggerPull();
-          this.display();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Push local changes")
-      .setDesc("Fetch first; push only when remote ancestry is safe. Never force-pushes.")
-      .addButton((button) =>
-        button.setButtonText("Push").onClick(async () => {
-          await this.plugin.triggerPush();
-          this.display();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Last sync log")
-      .setDesc("Show the most recent Pull/Push audit log, including file actions such as ADD, UPDATE, DELETE and KEEP LOCAL.")
-      .addButton((button) =>
-        button.setButtonText("Show log").onClick(() => {
-          this.plugin.showLastSyncLog();
-        })
-      );
+    containerEl.createEl("h3", { text: "Recovery (advanced)" });
 
     new Setting(containerEl)
       .setName("Adopt GitHub as canonical")
@@ -224,14 +235,6 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
         })
       );
 
-    const fmt = (value: number) =>
-      value > 0 ? new Date(value).toLocaleString() : "never";
-    containerEl.createEl("p", {
-      text:
-        `Last pull: ${fmt(settings.lastPullTime)} · Last push: ${fmt(settings.lastPushTime)} · ` +
-        `Last operation: ${fmt(settings.lastOperationTime)}`,
-      cls: "setting-item-description",
-    });
   }
 
   private async startDeviceFlow(button: ButtonComponent): Promise<void> {
