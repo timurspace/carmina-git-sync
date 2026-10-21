@@ -170,7 +170,7 @@ test("previously staged deletion outside mobile profile blocks Push before commi
   assert.equal(remotePushCount, 0);
 });
 
-test("pre-staged mode-only change outside mobile profile blocks Push", async (t) => {
+test("stale out-of-profile mode-only staging is repaired without touching content", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
   const filepath = outside[1];
   const original = await git.readBlob({ fs, dir, oid: baseline, filepath });
@@ -178,11 +178,41 @@ test("pre-staged mode-only change outside mobile profile blocks Push", async (t)
     fs, dir, filepath, oid: original.oid, mode: 0o100644,
   });
   await io.writeFile(path.join(dir, card), "edited locally\\n");
-  const result = await sync.pushLocalChanges("must block mode-only");
-  assert.equal(result.success, false);
-  assert.match(result.message, /staged changes exist outside/);
+  const result = await sync.pushLocalChanges("repair mode-only and push card");
+  assert.equal(result.success, true, result.error || result.message);
+  assert.match(result.logs.join("\\n"), /restored out-of-profile index mode from HEAD/);
+  assert.equal(remotePushCount, 1);
+  const head = await git.resolveRef({ fs, dir, ref: "main" });
+  assert.notEqual(head, baseline);
+  await assertPreservedOutside(dir, baseline, head);
+});
+
+test("mode-only stale index with no in-profile edits creates no commit or Push", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const filepath = outside[1];
+  const original = await git.readBlob({ fs, dir, oid: baseline, filepath });
+  await git.updateIndex({ fs, dir, filepath, oid: original.oid, mode: 0o100644 });
+  const result = await sync.pushLocalChanges("repair index only");
+  assert.equal(result.success, true, result.error || result.message);
+  assert.equal(result.changed, false);
   assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
   assert.equal(remotePushCount, 0);
+  assert.deepEqual(await sync.outOfProfileTreeChanges(baseline), []);
+});
+
+test("out-of-profile content changes are never repaired or pushed", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const filepath = outside[1];
+  const { oid } = await git.writeBlob({
+    fs, dir, blob: Buffer.from("malicious staged change\\n"),
+  });
+  await git.updateIndex({ fs, dir, filepath, oid, mode: 0o100644 });
+  await io.writeFile(path.join(dir, card), "intended mobile edit\\n");
+  const result = await sync.pushLocalChanges("must refuse out-of-profile content");
+  assert.equal(result.success, false);
+  assert.match(result.message, /staged changes exist outside/);
+  assert.equal(remotePushCount, 0);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
 });
 
 test("already committed mode-only change outside profile cannot be pushed", async (t) => {
