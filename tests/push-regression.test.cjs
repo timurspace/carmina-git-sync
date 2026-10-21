@@ -228,6 +228,59 @@ test("automatic Pull still applies unrelated remote change without overwriting p
   await assertPreservedOutside(dir, baseline, remote);
 });
 
+test("automatic Pull applies a clean remote edit immediately on the first run", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remoteText = "id: 058\nUpdated only in GitHub\n";
+  const remote = await remoteEditAhead(dir, baseline, sync, card, remoteText);
+  const result = await sync.pullCanonical("auto-keep-local");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.changed, true);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), remote);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), remoteText);
+  assert.match(result.logs.join("\n"), /UPDATE/);
+});
+
+test("staged-only same-path edits also block automatic Pull and later Push", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nRemote text\n");
+  const stagedText = "id: 058\nStaged local text\n";
+  await io.writeFile(path.join(dir, card), stagedText);
+  await git.add({ fs, dir, filepath: card });
+  // The working file matches HEAD again, but index contains unique staged data.
+  await io.writeFile(path.join(dir, card), originals.get(card));
+  const result = await sync.pullCanonical("auto-keep-local");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.changed, false);
+  assert.deepEqual(result.conflictPaths, [card]);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), originals.get(card));
+  const staged = await git.walk({
+    fs, dir, trees: [git.TREE({ ref: baseline }), git.STAGE()],
+    map: async (p, [a, b]) => p === card ? await b?.oid() : undefined,
+  });
+  const stagedOid = staged.filter(Boolean)[0];
+  const expectedStagedOid = await git.hashBlob({ object: stagedText });
+  assert.equal(stagedOid, expectedStagedOid.oid);
+  const push = await sync.pushLocalChanges("must not lose staged edit");
+  assert.equal(push.success, false);
+  assert.equal(remotePushCount, 0);
+  assert.notEqual(remote, baseline);
+});
+
+test("manual cancellation path can safely leave a same-file conflict pending", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nRemote version\n");
+  const local = "id: 058\nPhone version\n";
+  await io.writeFile(path.join(dir, card), local);
+  const prompt = await sync.pullCanonical("prompt");
+  assert.equal(prompt.success, false);
+  assert.deepEqual(prompt.conflictPaths, [card]);
+  // The UI's Cancel action intentionally does NOT rerun pullCanonical.
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
+  assert.notEqual(remote, baseline);
+});
+
 test("mobile Push of one edited card preserves every unmaterialized canonical file", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
   await io.writeFile(path.join(dir, card), "id: 058\nedited card text\n");
