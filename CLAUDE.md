@@ -262,3 +262,12 @@ Do not downgrade these workflows to Node 20-targeting action versions. GitHub-ho
 - Actual phase labels are emitted by Pull and Push (GitHub fetch, local checks, staging, commit, validation, upload) without inventing an ETA or completion percentage.
 - Active progress state is cleared on success, failure, cancellation, or when the settings view closes. Repeated taps still cannot start overlapping sync jobs.
 - Ten offline Push regressions, TypeScript checking and production build must pass. Device UI acceptance is still required.
+
+## alpha.9 — safe automatic Pull and correct file contents (2026-10-21)
+
+- Distinguish unattended `auto-keep-local` from explicitly chosen `keep-local`; automatic Pull never moves HEAD when local and GitHub have changed the same path.
+- A paused automatic Pull leaves both versions intact, logs conflict paths and prompts the user to run manual Pull; Push remains blocked by the branch-ancestry guard until that choice.
+- Git checkout during fast-forward must name the intended remote commit explicitly; otherwise "Use GitHub" and UPDATE can restore stale local contents.
+- Staged-only edits also count as local modifications for same-path conflict detection.
+- 17 offline real-Git sync regression tests, typecheck and production build passed in PR #24; physical Android UI verification pending.
+- See `docs/INCIDENT_2026-10-21_AUTO_PULL_CONFLICT.md`.
