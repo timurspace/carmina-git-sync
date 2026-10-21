@@ -20,7 +20,7 @@ const originals = new Map([
   [index, "# Authors\n"],
   [outside[0], "# Rules\n"],
   [outside[1], "print('validator')\n"],
-  [outside[2], '{"type":"object"}\n"],
+  [outside[2], '{"type":"object"}\n'],
 ]);
 let GitSync, buildPath, remotePushCount = 0;
 const realPush = git.push;
