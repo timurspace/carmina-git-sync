@@ -2,14 +2,20 @@ name: Release Obsidian Plugin
 
 on:
   push:
+    # Tag pushes remain supported. Only a manifest version bump on main
+    # triggers an automatic prerelease; unrelated code changes do not.
     tags:
       - "*"
+    branches:
+      - main
+    paths:
+      - "manifest.json"
   workflow_dispatch:
     inputs:
       tag:
         description: "Prerelease tag; must exactly match manifest.json version"
         required: true
-        default: "0.2.1-alpha.5"
+        default: "0.2.1-alpha.6"
 
 permissions:
   contents: write
@@ -30,6 +36,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Offline mobile Push regression tests
+        run: npm run test:push
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -42,8 +51,11 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            # main push that changed manifest.json: release that manifest version
+            echo "tag=$(node -p "require('./manifest.json').version")" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Verify release version
@@ -56,6 +68,10 @@ jobs:
             echo "manifest=$MANIFEST_VERSION"
             exit 1
           fi
+
+      - name: Check versions.json consistency
+        run: |
+          node -e "const m=require('./manifest.json'); const v=require('./versions.json'); if(v[m.version] !== m.minAppVersion) { console.error('versions.json missing '+m.version+' -> '+m.minAppVersion); process.exit(1); }"
 
       - name: Create prerelease
         uses: softprops/action-gh-release@v3
