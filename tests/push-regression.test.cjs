@@ -185,6 +185,22 @@ test("pre-staged mode-only change outside mobile profile blocks Push", async (t)
   assert.equal(remotePushCount, 0);
 });
 
+test("already committed mode-only change outside profile cannot be pushed", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const filepath = outside[1];
+  const original = await git.readBlob({ fs, dir, oid: baseline, filepath });
+  await git.updateIndex({ fs, dir, filepath, oid: original.oid, mode: 0o100644 });
+  const wrongLocalCommit = await git.commit({
+    fs, dir, author, message: "pre-existing unsafe local mode change",
+  });
+  assert.notEqual(wrongLocalCommit, baseline);
+  const result = await sync.pushLocalChanges("must block prior mode change");
+  assert.equal(result.success, false);
+  assert.match(result.message, /outgoing Git history changes files outside/);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), wrongLocalCommit);
+  assert.equal(remotePushCount, 0);
+});
+
 test("remote branch ahead of mobile branch blocks Push without committing", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
   const remoteFile = "90_Индексы/Remote.md";
