@@ -223,6 +223,12 @@ export default class CarminaGitSyncPlugin extends Plugin {
         };
       }
 
+      if (!showSuccessNotice && result.conflictPaths?.length) {
+        new Notice(
+          `Carmina Git Sync: Pull paused for ${result.conflictPaths.length} conflicting file(s). ` +
+          "Press Pull manually to choose a version."
+        );
+      }
       await this.finishOperation("pull", result, showSuccessNotice);
     } finally {
       this.syncInProgress = null;
