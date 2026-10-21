@@ -911,12 +911,21 @@ export class GitSync {
     }
   }
 
-  async pushLocalChanges(commitMessage: string): Promise<GitOperationResult> {
+  async pushLocalChanges(
+    commitMessage: string,
+    onProgress?: (detail: string) => void
+  ): Promise<GitOperationResult> {
     const logs: string[] = [];
     const log = (line: string) => logs.push(line);
+    const phase = (detail: string) => {
+      log(`phase=${detail}`);
+      onProgress?.(detail);
+    };
 
     try {
+      phase("Preparing repository");
       await this.ensureRepository();
+      phase("Fetching GitHub");
       const remoteHead = await this.fetchRemote(log);
 
       if (!(await this.hasLocalBranch())) {
@@ -947,11 +956,13 @@ export class GitSync {
         );
       }
 
+      phase("Checking local changes");
       const rows = await this.statusRows();
       const dirtyRows = rows.filter(
         ([, head, workdir, stage]) => !(head === 1 && workdir === 1 && stage === 1)
       );
 
+      phase(`Staging ${dirtyRows.length} local change(s)`);
       for (const [filepath, , workdir] of dirtyRows) {
         try {
           if (workdir === 0) {
@@ -973,6 +984,7 @@ export class GitSync {
 
       // Repair the known Android legacy mode-only index drift, without
       // touching the working copy or allowing content/deletion changes.
+      phase("Verifying staged changes");
       await this.restoreOutOfProfileModeOnlyChanges(localHead, log);
 
       // Fail closed for any other out-of-profile change, including mode
@@ -995,6 +1007,7 @@ export class GitSync {
       log(`workingChanges=${dirtyRows.length} stagedChange=${stagedChange}`);
 
       if (stagedChange) {
+        phase("Creating local commit");
         const oid = await git.commit({
           ...this.gitOpts(),
           message: commitMessage,
@@ -1003,6 +1016,7 @@ export class GitSync {
         log(`committed ${oid.slice(0, 8)}`);
       }
 
+      phase("Checking outgoing changes");
       const relationAfterCommit = await this.relation(localHead, remoteHead);
       if (relationAfterCommit === "equal") {
         return this.result(true, false, "Nothing to push.", logs);
@@ -1031,6 +1045,7 @@ export class GitSync {
         );
       }
 
+      phase("Sending changes to GitHub");
       await git.push({
         ...this.netOpts(),
         ref: this.branch,
