@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from "../github/api";
 
 export class MultiSyncSettingsTab extends PluginSettingTab {
   plugin: CarminaGitSyncPlugin;
+  private unsubscribeProgress: (() => void) | null = null;
 
   constructor(app: App, plugin: CarminaGitSyncPlugin) {
     super(app, plugin);
@@ -12,6 +13,8 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.unsubscribeProgress?.();
+    this.unsubscribeProgress = null;
     const { containerEl } = this;
     const settings = this.plugin.settings;
     containerEl.empty();
@@ -54,6 +57,30 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
           this.plugin.showLastSyncLog();
         })
       );
+
+    // Native <progress> without a value means "working, unknown duration".
+    // Avoid inventing a percentage for Git operations whose durations vary.
+    const progressPanel = containerEl.createDiv({ cls: "carmina-sync-progress" });
+    progressPanel.style.cssText =
+      "display:none;background:var(--background-secondary);" +
+      "padding:12px;border-radius:8px;margin:10px 0 12px;";
+    const phaseLabel = progressPanel.createDiv();
+    phaseLabel.style.cssText = "font-size:var(--font-ui-small);margin-bottom:8px;";
+    phaseLabel.setAttribute("role", "status");
+    phaseLabel.setAttribute("aria-live", "polite");
+    const progressBar = progressPanel.createEl("progress");
+    progressBar.max = 1;
+    // No 'value' attribute: the browser displays an indeterminate progress bar.
+    progressBar.style.cssText = "width:100%;height:10px;display:block;";
+
+    this.unsubscribeProgress = this.plugin.subscribeSyncProgress((activity) => {
+      progressPanel.style.display = activity ? "block" : "none";
+      if (!activity) return;
+      const action = activity.kind === "pull" ? "Pull" : "Push";
+      const label = `${action} in progress · ${activity.phase}`;
+      phaseLabel.setText(label);
+      progressBar.setAttribute("aria-label", label);
+    });
 
     const fmt = (value: number) =>
       value > 0 ? new Date(value).toLocaleString() : "never";
@@ -235,6 +262,12 @@ export class MultiSyncSettingsTab extends PluginSettingTab {
         })
       );
 
+  }
+
+  hide(): void {
+    this.unsubscribeProgress?.();
+    this.unsubscribeProgress = null;
+    super.hide();
   }
 
   private async startDeviceFlow(button: ButtonComponent): Promise<void> {
