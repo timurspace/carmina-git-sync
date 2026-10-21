@@ -239,6 +239,46 @@ export class GitSync {
     return pathMatchesProfile(filepath, this.syncProfile);
   }
 
+  /**
+   * Check real Git object IDs AND executable/symlink modes against HEAD.
+   * statusMatrix reports coarse presence/staging states and can miss a mode-only
+   * change (100755 -> 100644); this caused an unintended Android Push in 2026-10.
+   * A sparse working tree must never alter paths outside its active profile.
+   */
+  private async outOfProfileTreeChanges(
+    reference: string,
+    candidate?: string
+  ): Promise<string[]> {
+    const rows = await git.walk({
+      fs: this.fs,
+      dir: this.dir,
+      trees: [
+        git.TREE({ ref: reference }),
+        candidate ? git.TREE({ ref: candidate }) : git.STAGE(),
+      ],
+      map: async (filepath, [before, after]) => {
+        if (filepath === "." || this.isProfilePath(filepath)) return;
+
+        const [beforeType, afterType] = await Promise.all([
+          before?.type(),
+          after?.type(),
+        ]);
+        if (beforeType === "tree" || afterType === "tree") return;
+
+        const [beforeOid, afterOid, beforeMode, afterMode] = await Promise.all([
+          before?.oid(),
+          after?.oid(),
+          before?.mode(),
+          after?.mode(),
+        ]);
+        if (beforeOid === afterOid && beforeMode === afterMode) return;
+
+        return filepath;
+      },
+    });
+    return rows.filter((path): path is string => typeof path === "string");
+  }
+
   private async statusRows(): Promise<Array<[string, number, number, number]>> {
     const matrix = await git.statusMatrix({ fs: this.fs, dir: this.dir });
     return matrix.filter(
@@ -877,10 +917,9 @@ export class GitSync {
         }
       }
 
-      const fullMatrix = await git.statusMatrix({ fs: this.fs, dir: this.dir });
-      const unsafeStagedPaths = fullMatrix
-        .filter(([filepath, head, , stage]) => !this.isProfilePath(filepath) && stage !== head)
-        .map(([filepath]) => filepath);
+      // Compare Git's actual staged OIDs and modes, not the coarse status matrix.
+      // In particular, this detects pre-staged executable-bit changes.
+      const unsafeStagedPaths = await this.outOfProfileTreeChanges(localHead);
 
       if (unsafeStagedPaths.length > 0) {
         log(`blocked staged changes outside profile: ${unsafeStagedPaths.join(", ")}`);
@@ -917,6 +956,20 @@ export class GitSync {
           "Push stopped because ancestry could not be verified safely.",
           logs,
           "No force-push was attempted."
+        );
+      }
+
+      // A final payload check catches mode changes produced during commit as
+      // well as commits that were already ahead of the remote branch.
+      const unsafeOutgoingPaths = await this.outOfProfileTreeChanges(remoteHead, localHead);
+      if (unsafeOutgoingPaths.length > 0) {
+        log(`blocked outgoing changes outside profile: ${unsafeOutgoingPaths.join(", ")}`);
+        return this.result(
+          false,
+          stagedChange,
+          "Push stopped because the outgoing Git history changes files outside the active sync profile.",
+          logs,
+          "GitHub was not modified. Inspect the local commit and re-adopt or repair deliberately before retrying."
         );
       }
 
