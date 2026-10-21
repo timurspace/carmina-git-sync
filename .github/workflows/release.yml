@@ -55,7 +55,8 @@ jobs:
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
             # main push that changed manifest.json: release that manifest version
-            echo "tag=$(node -p "require('./manifest.json').version")" >> "$GITHUB_OUTPUT"
+            MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+            echo "tag=${MANIFEST_VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Verify release version
