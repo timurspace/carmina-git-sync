@@ -5,11 +5,33 @@ import { StatusBarItem } from "./ui/status-bar";
 import { GitSync } from "./sync/git-sync";
 import { repoExists } from "./github/api";
 
+export type SyncProgress = Readonly<{ kind: "pull" | "push"; phase: string }> | null;
+
 export default class CarminaGitSyncPlugin extends Plugin {
   settings!: PluginSettings;
   private statusBar!: StatusBarItem;
   private gitSync: GitSync | null = null;
   private syncInProgress: "pull" | "push" | null = null;
+  private syncProgress: SyncProgress = null;
+  private progressListeners = new Set<(progress: SyncProgress) => void>();
+
+  /** A live, non-persistent indicator for manual Pull/Push operations. */
+  subscribeSyncProgress(listener: (progress: SyncProgress) => void): () => void {
+    this.progressListeners.add(listener);
+    listener(this.syncProgress);
+    return () => this.progressListeners.delete(listener);
+  }
+
+  private updateSyncProgress(kind: "pull" | "push", phase: string): void {
+    this.syncProgress = { kind, phase };
+    this.setStatus(kind === "pull" ? "pulling" : "pushing", phase);
+    for (const listener of this.progressListeners) listener(this.syncProgress);
+  }
+
+  private clearSyncProgress(): void {
+    this.syncProgress = null;
+    for (const listener of this.progressListeners) listener(null);
+  }
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -166,14 +188,15 @@ export default class CarminaGitSyncPlugin extends Plugin {
 
     this.syncInProgress = "pull";
     try {
-      this.setStatus("pulling");
+      this.updateSyncProgress("pull", "Preparing repository");
       let result = await this.gitSync.pullCanonical(
         showSuccessNotice ? "prompt" : "keep-local",
-        (detail) => this.setStatus("pulling", detail)
+        (detail) => this.updateSyncProgress("pull", detail)
       );
 
       if (showSuccessNotice && result.conflictPaths?.length) {
         const firstLogs = [...result.logs];
+        this.updateSyncProgress("pull", "Waiting for your conflict decision");
         this.setStatus("conflict", `${result.conflictPaths.length} local difference(s)`);
         const choice = await choosePullConflictResolution(this.app, result.conflictPaths);
 
@@ -185,10 +208,10 @@ export default class CarminaGitSyncPlugin extends Plugin {
           return;
         }
 
-        this.setStatus("pulling");
+        this.updateSyncProgress("pull", "Preparing repository");
         const resolved = await this.gitSync.pullCanonical(
           choice,
-          (detail) => this.setStatus("pulling", detail)
+          (detail) => this.updateSyncProgress("pull", detail)
         );
         result = {
           ...resolved,
@@ -203,6 +226,7 @@ export default class CarminaGitSyncPlugin extends Plugin {
       await this.finishOperation("pull", result, showSuccessNotice);
     } finally {
       this.syncInProgress = null;
+      this.clearSyncProgress();
     }
   }
 
@@ -229,11 +253,15 @@ export default class CarminaGitSyncPlugin extends Plugin {
       const now = new Date().toISOString().replace("T", " ").slice(0, 19);
       const message = this.settings.commitMessageTemplate.split("{{datetime}}").join(now);
 
-      this.setStatus("pushing");
-      const result = await this.gitSync.pushLocalChanges(message);
+      this.updateSyncProgress("push", "Preparing repository");
+      const result = await this.gitSync.pushLocalChanges(
+        message,
+        (detail) => this.updateSyncProgress("push", detail)
+      );
       await this.finishOperation("push", result, true);
     } finally {
       this.syncInProgress = null;
+      this.clearSyncProgress();
     }
   }
 
