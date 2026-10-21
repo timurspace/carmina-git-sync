@@ -211,6 +211,32 @@ The Android device is therefore in this state:
 
 This is an intentional safety deadlock. The plugin does not auto-merge or choose which copy of card 058 should win.
 
+## 2026-10-21 — automated offline Push regression (PR #16)
+
+The code path `GitSync.pushLocalChanges` now has **five repeatable offline
+integration tests** (`tests/push-regression.test.cjs`), included in the plugin
+CI via `npm run test:push`. Tests use actual temporary Git repositories,
+real staging/commit operations, and a filesystem-backed Obsidian adapter
+double; fetch uses fixture commit SHAs and the remote Push is a network-disabled
+stub. The tests verify:
+
+1. Editing one in-profile card preserves all out-of-profile files in the
+   resulting commit and changes exactly the intended card.
+2. Deleting a file inside the mobile profile does not delete any
+   out-of-profile files.
+3. An already-staged deletion outside the mobile profile aborts Push before
+   a commit or network operation.
+4. A newer remote commit stops the Push before any local commit.
+5. Missing out-of-profile files alone never create a commit or Push.
+
+All **five** passed on [GitHub Actions run 39619076610](https://github.com/timurspace/carmina-git-sync/actions/runs/39619076610).
+This is a **test of the real Push staging/commit logic, not a real GitHub
+network Push and not a physical Android test**. The October 4 acceptance
+criterion below remains pending: a controlled Push from a clean actual Android
+vault, followed by inspection of the resulting remote GitHub commit.
+Never perform that acceptance test on the canonical corpus with a destructive
+fixture or without reviewing the planned changes.
+
 ## What has NOT yet been validated
 
 The original regression test is **not yet complete**.
