@@ -179,7 +179,7 @@ test("stale out-of-profile mode-only staging is repaired without touching conten
   });
   await io.writeFile(path.join(dir, card), "edited locally\\n");
   const result = await sync.pushLocalChanges("repair mode-only and push card");
-  assert.equal(result.success, true, result.error || result.message);
+  assert.equal(result.success, true, JSON.stringify(result));
   assert.match(result.logs.join("\\n"), /restored out-of-profile index mode from HEAD/);
   assert.equal(remotePushCount, 1);
   const head = await git.resolveRef({ fs, dir, ref: "main" });
@@ -193,7 +193,7 @@ test("mode-only stale index with no in-profile edits creates no commit or Push",
   const original = await git.readBlob({ fs, dir, oid: baseline, filepath });
   await git.updateIndex({ fs, dir, filepath, oid: original.oid, mode: 0o100644 });
   const result = await sync.pushLocalChanges("repair index only");
-  assert.equal(result.success, true, result.error || result.message);
+  assert.equal(result.success, true, JSON.stringify(result));
   assert.equal(result.changed, false);
   assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
   assert.equal(remotePushCount, 0);
@@ -203,10 +203,10 @@ test("mode-only stale index with no in-profile edits creates no commit or Push",
 test("out-of-profile content changes are never repaired or pushed", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
   const filepath = outside[1];
-  const { oid } = await git.writeBlob({
-    fs, dir, blob: Buffer.from("malicious staged change\\n"),
-  });
-  await git.updateIndex({ fs, dir, filepath, oid, mode: 0o100644 });
+  // Present the file momentarily to let isomorphic-git stage a real content edit.
+  await io.writeFile(path.join(dir, filepath), "malicious staged change\\n");
+  await git.add({ fs, dir, filepath });
+  await io.unlink(path.join(dir, filepath));
   await io.writeFile(path.join(dir, card), "intended mobile edit\\n");
   const result = await sync.pushLocalChanges("must refuse out-of-profile content");
   assert.equal(result.success, false);
