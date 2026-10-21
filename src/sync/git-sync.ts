@@ -279,6 +279,55 @@ export class GitSync {
     return rows.filter((path): path is string => typeof path === "string");
   }
 
+
+  /**
+   * Older Android builds could stage 100644 in place of a canonical 100755
+   * outside the mobile profile. Restore ONLY index metadata for such paths,
+   * and only when the blob ID is byte-identical to HEAD. Never touch the
+   * working tree or silently repair staged additions/deletions/content edits.
+   */
+  private async restoreOutOfProfileModeOnlyChanges(
+    localHead: string,
+    log: (line: string) => void
+  ): Promise<void> {
+    const modeOnlyPaths = await git.walk({
+      fs: this.fs,
+      dir: this.dir,
+      trees: [git.TREE({ ref: localHead }), git.STAGE()],
+      map: async (filepath, [head, staged]) => {
+        if (filepath === "." || this.isProfilePath(filepath) || !head || !staged) return;
+
+        const [headType, stagedType, headOid, stagedOid, headMode, stagedMode] =
+          await Promise.all([
+            head.type(), staged.type(),
+            head.oid(), staged.oid(),
+            head.mode(), staged.mode(),
+          ]);
+        const regularMode = (mode: number) =>
+          mode === 0o100644 || mode === 0o100755;
+
+        if (
+          headType !== "blob" || stagedType !== "blob" ||
+          headOid !== stagedOid ||
+          headMode === stagedMode ||
+          !regularMode(headMode) || !regularMode(stagedMode)
+        ) return;
+
+        return filepath;
+      },
+    });
+
+    for (const filepath of modeOnlyPaths.filter((p): p is string => typeof p === "string")) {
+      await git.resetIndex({
+        fs: this.fs,
+        dir: this.dir,
+        filepath,
+        ref: localHead,
+      });
+      log(`restored out-of-profile index mode from HEAD: ${filepath}`);
+    }
+  }
+
   private async statusRows(): Promise<Array<[string, number, number, number]>> {
     const matrix = await git.statusMatrix({ fs: this.fs, dir: this.dir });
     return matrix.filter(
@@ -917,8 +966,12 @@ export class GitSync {
         }
       }
 
-      // Compare Git's actual staged OIDs and modes, not the coarse status matrix.
-      // In particular, this detects pre-staged executable-bit changes.
+      // Repair the known Android legacy mode-only index drift, without
+      // touching the working copy or allowing content/deletion changes.
+      await this.restoreOutOfProfileModeOnlyChanges(localHead, log);
+
+      // Fail closed for any other out-of-profile change, including mode
+      // changes not eligible for the strict metadata-only repair above.
       const unsafeStagedPaths = await this.outOfProfileTreeChanges(localHead);
 
       if (unsafeStagedPaths.length > 0) {
