@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:push": "node --test --test-concurrency=1 tests/push-regression.test.cjs"
   },
   "dependencies": {
     "buffer": "^6.0.3",
