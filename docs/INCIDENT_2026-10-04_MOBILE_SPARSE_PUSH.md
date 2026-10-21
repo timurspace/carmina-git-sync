@@ -389,3 +389,31 @@ During Android validation, Pull sometimes completed only after repeated user tap
 `0.2.1-alpha.5` adds a persistent last-operation audit log with explicit file actions (`ADD`, `UPDATE`, `DELETE`, `RESTORE`, `KEEP LOCAL`) and blocks overlapping Pull/Push requests.
 
 This does not change the canonical-state rules; it makes their actual effects visible and easier to verify.
+
+## 2026-10-21 — executable-bit regression observed and guarded
+
+A real Android Push to the canonical corpus (`854a11b`) **did not delete any
+files**, but unexpectedly changed Git mode of the out-of-profile
+`tools/inventory_frontmatter.py` from `100755` to `100644`, with identical
+blob contents. GitHub Actions corpus validation passed because this was a
+Git-mode-only change. The mode was restored in corpus PR #68 and documented
+in `99_Служебное/QA_Carmina_Git_Sync_Android_Push_2026-10-21.md`.
+
+Cause of inadequate guarding: the original Push safety check compared
+`statusMatrix` **head/stage presence flags**, which do not distinguish
+file-mode-only changes. A regression test with a `100755` out-of-profile
+file failed **before the fix**: a pre-staged mode change incorrectly passed
+to Push.
+
+Plugin PR #17 replaces that check with a HEAD-vs-STAGE Git walker comparing
+both object IDs and **file modes**, and separately compares the complete
+outgoing Git history against the remote HEAD before performing the network
+Push. A mismatched mode/blob outside the mobile profile blocks Push.
+Seven isolated offline regression tests cover sparse content, deletions,
+behind-remote state, staged mode-only changes, and already-committed
+mode-only outgoing changes.
+
+**Still pending:** physical Android acceptance with a new prerelease.
+Green offline CI is not a substitute for the device test. Until the new
+version is released and installed, the phone runs the older executable-mode
+guard behavior.
