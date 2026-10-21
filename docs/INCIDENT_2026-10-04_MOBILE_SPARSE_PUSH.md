@@ -417,3 +417,31 @@ mode-only outgoing changes.
 Green offline CI is not a substitute for the device test. Until the new
 version is released and installed, the phone runs the older executable-mode
 guard behavior.
+
+## 2026-10-21 — alpha.6 blocked residual index-only mode drift
+
+The real Android `0.2.1-alpha.6` acceptance test fetched canonical
+`9f179c08` and reported `pre-push relation=equal`, followed by:
+`blocked staged changes outside profile: tools/inventory_frontmatter.py`.
+
+This is **correct failure-closed behavior**: the test file was **not pushed**,
+no canonical file was changed, and the same out-of-profile mode artifact
+remained in the **local Git index** on Android after restoring the canonical
+file mode on GitHub.
+
+Plugin PR #20 adds a narrowly scoped recovery: after normal in-profile staging,
+identify only out-of-profile files with the **same canonical blob OID** but a
+staged regular-file mode mismatch (`100644` vs. `100755`) and correct the
+index entry using the exact HEAD blob ID and mode via `git.updateIndex`.
+This does **not** touch the working tree, existing commits, GitHub, or
+the content of any file. Any out-of-profile staged content, addition,
+deletion, type change or unsafe outgoing commit is **still blocked**.
+
+Using `git.resetIndex` for this correction was tested and rejected: on a
+sparse Android-style filesystem, it can reapply `100644` for the absent file
+and leave the problem intact. The canonical OID+mode direct-index correction
+passes offline integration tests with mode preservation and unrelated
+content-block scenarios. **Nine tests** now run on CI.
+
+Physical Android alpha.7 validation remains open: Pull test note, Push exactly
+one change, inspect GitHub commit including file modes, then clean up.
