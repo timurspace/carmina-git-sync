@@ -190,7 +190,7 @@ export default class CarminaGitSyncPlugin extends Plugin {
     try {
       this.updateSyncProgress("pull", "Preparing repository");
       let result = await this.gitSync.pullCanonical(
-        showSuccessNotice ? "prompt" : "keep-local",
+        showSuccessNotice ? "prompt" : "auto-keep-local",
         (detail) => this.updateSyncProgress("pull", detail)
       );
 
@@ -343,10 +343,15 @@ export default class CarminaGitSyncPlugin extends Plugin {
     this.settings.lastOperationLog = result.logs.slice(-250);
 
     if (result.success) {
-      if (kind === "pull") this.settings.lastPullTime = Date.now();
+      if (kind === "pull" && !result.conflictPaths?.length) this.settings.lastPullTime = Date.now();
       if (kind === "push" && result.changed) this.settings.lastPushTime = Date.now();
       await this.saveSettings();
-      this.setStatus("idle");
+      if (kind === "pull" && result.conflictPaths?.length) {
+        // Background Pull must not silently mark an unresolved conflict as idle.
+        this.setStatus("conflict", `${result.conflictPaths.length} path(s): run manual Pull`);
+      } else {
+        this.setStatus("idle");
+      }
       if (showSuccessNotice) new Notice(result.message);
       return;
     }
@@ -417,8 +422,10 @@ function choosePullConflictResolution(
       text:
         "GitHub is canonical, but these local paths differ from the canonical state. " +
         "This can be a phone edit, a stale file, or a file left behind by an interrupted Pull. " +
-        "Choose whether to restore the GitHub version or keep the local version. " +
-        "Other non-conflicting GitHub changes will still be pulled.",
+        "Use GitHub replaces the phone copy. Keep local explicitly preserves " +
+        "the phone copy and updates Git history; a later Push will send the local " +
+        "version to GitHub. Cancel changes nothing. " +
+        "Automatic Pull never resolves conflicting edits by itself.",
     });
 
     const list = modal.contentEl.createEl("ul");
