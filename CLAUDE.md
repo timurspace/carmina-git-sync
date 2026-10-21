@@ -22,7 +22,7 @@ npm run build
 
 - `npm run typecheck` runs `tsc --noEmit`.
 - `npm run build` creates the production `main.js` bundle.
-- GitHub Actions runs typecheck + build on pull requests and relevant pushes.
+- GitHub Actions runs offline Push regression tests, typecheck + build on pull requests and relevant pushes.
 - The release workflow can be triggered manually to create a BRAT prerelease.
 
 ## Current synchronization model
@@ -147,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.5`
+- manifest version: `0.2.1-alpha.6`
 
 BRAT prereleases contain:
 
