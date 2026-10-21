@@ -778,8 +778,18 @@ export class GitSync {
       });
       phase("Checking local changes");
       const relation = await this.relation(localHead, remoteHead);
-      const dirty = await this.workingChangedPaths();
-      log(`relation=${relation} localWorkingChanges=${dirty.length}`);
+      // Include staged-only modifications as local changes. Otherwise Pull may
+      // replace the index for a file that was staged but then restored on disk.
+      // Missing sparse files outside the active profile are already filtered.
+      const rows = await this.statusRows();
+      const dirty = rows
+        .filter(([, head, workdir, stage]) => head !== workdir || head !== stage)
+        .map(([filepath]) => filepath);
+      const workingCount = rows.filter(([, head, workdir]) => head !== workdir).length;
+      log(
+        `relation=${relation} localWorkingChanges=${workingCount} ` +
+        `localStagedOnlyChanges=${dirty.length - workingCount}`
+      );
 
       if (relation === "equal") {
         if (dirty.length === 0) {
