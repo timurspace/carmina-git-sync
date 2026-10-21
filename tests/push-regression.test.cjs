@@ -146,8 +146,8 @@ async function assertPreservedOutside(dir, before, afterCommit) {
 
 test("automatic Pull defers same-path conflict without moving HEAD, and Push remains blocked", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
-  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\\nGitHub edit\\n");
-  const local = "id: 058\\nAndroid edit\\n";
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nGitHub edit\n");
+  const local = "id: 058\nAndroid edit\n";
   await io.writeFile(path.join(dir, card), local);
 
   const automatic = await sync.pullCanonical("auto-keep-local");
@@ -155,7 +155,7 @@ test("automatic Pull defers same-path conflict without moving HEAD, and Push rem
   assert.equal(automatic.changed, false);
   assert.deepEqual(automatic.conflictPaths, [card]);
   assert.match(automatic.message, /Automatic Pull paused/);
-  assert.match(automatic.logs.join("\\n"), /local branch unchanged/);
+  assert.match(automatic.logs.join("\n"), /local branch unchanged/);
   assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
   assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
 
@@ -177,9 +177,9 @@ test("automatic Pull defers same-path conflict without moving HEAD, and Push rem
 
 test("manual Use GitHub resolves the same-path conflict and restores remote content", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
-  const remoteText = "id: 058\\nGitHub wins\\n";
+  const remoteText = "id: 058\nGitHub wins\n";
   const remote = await remoteEditAhead(dir, baseline, sync, card, remoteText);
-  await io.writeFile(path.join(dir, card), "id: 058\\nAndroid edit\\n");
+  await io.writeFile(path.join(dir, card), "id: 058\nAndroid edit\n");
   const preview = await sync.pullCanonical("prompt");
   assert.deepEqual(preview.conflictPaths, [card]);
 
@@ -195,14 +195,14 @@ test("manual Use GitHub resolves the same-path conflict and restores remote cont
 
 test("manual Keep local explicitly resolves conflict and leaves local content to Push", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
-  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\\nGitHub edit\\n");
-  const local = "id: 058\\nAndroid explicitly retained\\n";
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nGitHub edit\n");
+  const local = "id: 058\nAndroid explicitly retained\n";
   await io.writeFile(path.join(dir, card), local);
   const result = await sync.pullCanonical("keep-local");
   assert.equal(result.success, true, JSON.stringify(result));
   assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), remote);
   assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
-  assert.match(result.logs.join("\\n"), /KEEP LOCAL/);
+  assert.match(result.logs.join("\n"), /KEEP LOCAL/);
   const push = await sync.pushLocalChanges("confirmed mobile version");
   assert.equal(push.success, true, JSON.stringify(push));
   assert.equal(remotePushCount, 1);
@@ -215,9 +215,9 @@ test("manual Keep local explicitly resolves conflict and leaves local content to
 
 test("automatic Pull still applies unrelated remote change without overwriting phone edit", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
-  const remoteText = "# New index from GitHub\\n";
+  const remoteText = "# New index from GitHub\n";
   const remote = await remoteEditAhead(dir, baseline, sync, index, remoteText);
-  const phone = "id: 058\\nAndroid edit only\\n";
+  const phone = "id: 058\nAndroid edit only\n";
   await io.writeFile(path.join(dir, card), phone);
   const result = await sync.pullCanonical("auto-keep-local");
   assert.equal(result.success, true, JSON.stringify(result));
