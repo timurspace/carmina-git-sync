@@ -525,6 +525,10 @@ export class GitSync {
         await git.checkout({
           fs: this.fs,
           dir: this.dir,
+          // Without an explicit ref isomorphic-git checks out HEAD, which
+          // still points to the OLD commit until the fast-forward completes.
+          // That made UPDATE and Use GitHub silently restore stale contents.
+          ref: target === "after" ? remoteHead : localHead,
           force: true,
           filepaths: checkoutPaths,
         });
