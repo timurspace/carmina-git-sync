@@ -847,6 +847,23 @@ export class GitSync {
         `samePathConflicts=${conflictPaths.length}`
       );
 
+      // Automatic Pull is not authorized to resolve a same-path conflict.
+      // Crucially, do not fast-forward HEAD while preserving an old phone file:
+      // a subsequent Push could then accidentally recommit it over GitHub.
+      // Keep the local branch behind so Push's ancestry guard blocks upload.
+      if (conflictPaths.length > 0 && conflictPolicy === "auto-keep-local") {
+        log(`automatic Pull deferred: same-path conflicts: ${conflictPaths.join(", ")}`);
+        log(`local branch unchanged at ${localHead.slice(0, 8)}; manual Pull required before Push`);
+        return this.result(
+          true,
+          false,
+          `Automatic Pull paused: ${conflictPaths.length} file(s) changed both locally and on GitHub. Run manual Pull to choose a version.`,
+          logs,
+          undefined,
+          conflictPaths
+        );
+      }
+
       if (conflictPaths.length > 0 && conflictPolicy === "prompt") {
         log(`needs conflict decision: ${conflictPaths.join(", ")}`);
         return this.result(
