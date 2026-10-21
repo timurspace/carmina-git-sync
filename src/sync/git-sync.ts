@@ -313,18 +313,23 @@ export class GitSync {
           !regularMode(headMode) || !regularMode(stagedMode)
         ) return;
 
-        return filepath;
+        return { filepath, oid: headOid, mode: headMode };
       },
     });
 
-    for (const filepath of modeOnlyPaths.filter((p): p is string => typeof p === "string")) {
-      await git.resetIndex({
+    for (const entry of modeOnlyPaths.filter(
+      (value): value is { filepath: string; oid: string; mode: number } => value !== undefined
+    )) {
+      // resetIndex re-stats absent mobile files and can reapply 100644.
+      // Update the index with the canonical HEAD blob ID and mode directly.
+      await git.updateIndex({
         fs: this.fs,
         dir: this.dir,
-        filepath,
-        ref: localHead,
+        filepath: entry.filepath,
+        oid: entry.oid,
+        mode: entry.mode,
       });
-      log(`restored out-of-profile index mode from HEAD: ${filepath}`);
+      log(`restored out-of-profile index mode from HEAD: ${entry.filepath}`);
     }
   }
 
