@@ -27,6 +27,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Offline mobile Push regression tests
+        run: npm run test:push
+
       - name: Typecheck
         run: npm run typecheck
 
