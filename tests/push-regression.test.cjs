@@ -92,6 +92,7 @@ async function fixture(t) {
   for (const [p, contents] of originals) {
     await io.mkdir(path.dirname(path.join(dir, p)), { recursive: true });
     await io.writeFile(path.join(dir, p), contents);
+    if (p === outside[1]) await io.chmod(path.join(dir, p), 0o755);
     await git.add({ fs, dir, filepath: p });
   }
   const baseline = await git.commit({ fs, dir, author, message: "isolated baseline" });
@@ -111,6 +112,20 @@ async function assertPreservedOutside(dir, before, afterCommit) {
     const b = await git.readBlob({ fs, dir, oid: before, filepath });
     const a = await git.readBlob({ fs, dir, oid: afterCommit, filepath });
     assert.deepEqual(Buffer.from(a.blob), Buffer.from(b.blob), filepath);
+  }
+  // Compare the actual Git tree mode; a 100755 -> 100644 change has identical blob OIDs
+  // and escaped the original blob-only regression coverage.
+  const changedModes = await git.walk({
+    fs, dir, trees: [git.TREE({ ref: before }), git.TREE({ ref: afterCommit })],
+    map: async (filepath, [a, b]) => {
+      if (!outside.includes(filepath)) return;
+      return {
+        filepath, beforeMode: await a?.mode(), afterMode: await b?.mode(),
+      };
+    },
+  });
+  for (const row of changedModes.filter(Boolean)) {
+    assert.equal(row.afterMode, row.beforeMode, `unexpected mode change: ${row.filepath}`);
   }
 }
 
@@ -149,6 +164,21 @@ test("previously staged deletion outside mobile profile blocks Push before commi
   await git.remove({ fs, dir, filepath: outside[0] });
   await io.writeFile(path.join(dir, card), "edited locally\n");
   const result = await sync.pushLocalChanges("must block");
+  assert.equal(result.success, false);
+  assert.match(result.message, /staged changes exist outside/);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(remotePushCount, 0);
+});
+
+test("pre-staged mode-only change outside mobile profile blocks Push", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const filepath = outside[1];
+  const original = await git.readBlob({ fs, dir, oid: baseline, filepath });
+  await git.updateIndex({
+    fs, dir, filepath, oid: original.oid, mode: 0o100644,
+  });
+  await io.writeFile(path.join(dir, card), "edited locally\\n");
+  const result = await sync.pushLocalChanges("must block mode-only");
   assert.equal(result.success, false);
   assert.match(result.message, /staged changes exist outside/);
   assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
