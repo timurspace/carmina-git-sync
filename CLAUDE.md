@@ -147,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.6`
+- manifest version: `0.2.1-alpha.7`
 
 BRAT prereleases contain:
 
@@ -246,3 +246,11 @@ CI and release workflows use Node 24-compatible action majors and build with Nod
 - build runtime: `node-version: "24.x"`
 
 Do not downgrade these workflows to Node 20-targeting action versions. GitHub-hosted runners now warn when Node 20 actions are forced onto Node 24.
+
+
+## alpha.7 scope (2026-10-21)
+
+- Move frequently used Pull, Push, and Last sync log controls to the top of the settings tab (#19).
+- Allow a safe recovery of legacy out-of-profile index-only Git mode drift when, and only when, the blob OID equals HEAD, restoring the exact HEAD file mode without touching the worktree (#20).
+- Continue blocking all out-of-profile content edits, deletions, additions, and unsafe pre-existing outgoing commits.
+- Nine offline Push tests must pass in CI and release builds. A real Android Push remains an outstanding release acceptance test.
