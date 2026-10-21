@@ -84,7 +84,7 @@ export interface SyncResult {
   logs?: string[];
 }
 
-export type PullConflictPolicy = "prompt" | "keep-local" | "use-github";
+export type PullConflictPolicy = "prompt" | "auto-keep-local" | "keep-local" | "use-github";
 
 export interface GitOperationResult {
   success: boolean;

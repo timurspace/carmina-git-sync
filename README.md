@@ -24,7 +24,7 @@ Version **0.2.x alpha** does not try to behave like Dropbox.
 - optional Pull on open is enabled by default;
 - rename/delete are discovered from the complete Git status at Push time, not from a fragile event queue.
 
-If local and remote histories diverge, the plugin stops and asks the user to choose a recovery path. Local working-tree edits no longer block unrelated GitHub updates: Pull updates non-conflicting paths, preserves local-only edits, and asks before replacing a file changed both locally and on GitHub.
+If local and remote histories diverge, the plugin stops and asks the user to choose a recovery path. Local working-tree edits do not block unrelated GitHub updates: Pull updates non-conflicting paths and preserves local-only edits. If the **same path** changed on both sides, **automatic Pull stops before advancing the local branch**, leaving the local file untouched and Push blocked until a manual Pull resolves the conflict.
 
 ## Carmina Mobile Profile
 
@@ -37,6 +37,8 @@ The full repository remains the canonical source on GitHub.
 The `carmina-mobile` profile is implemented in the synchronization core. It materializes only the configured mobile paths and filters normal status/staging to those paths. In addition, Push performs a fail-closed check against the full Git status matrix before commit: if any staged path exists outside the active profile, Push stops and nothing is committed or pushed. Tracked files omitted from the Android working copy must never be converted into canonical GitHub deletions.
 
 The alpha.2 sparse-deletion incident, root cause, fixes, release-versioning issue and current Android validation state are recorded in [`docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md`](docs/INCIDENT_2026-10-04_MOBILE_SPARSE_PUSH.md).
+
+The auto-Pull same-file conflict and stale-checkout root causes, mitigation and regression coverage are recorded in [`docs/INCIDENT_2026-10-21_AUTO_PULL_CONFLICT.md`](docs/INCIDENT_2026-10-21_AUTO_PULL_CONFLICT.md).
 
 ## Migration from an older Git Sync vault
 
@@ -100,7 +102,7 @@ If the local Git history is unrelated to the canonical repository, normal attach
 
 ## Daily use
 
-**Pull from GitHub** is the normal operation, especially after editing cards directly on GitHub. If a local file is unchanged, a newer GitHub version replaces it automatically. If a different file has a local edit, that local edit is preserved while GitHub changes are pulled. If the same path changed both locally and on GitHub, manual Pull asks whether to **Use GitHub**, **Keep local**, or cancel.
+**Pull from GitHub** is the normal operation, especially after editing cards directly on GitHub. If a local file is unchanged, the newer GitHub version replaces it on the first Pull. An unrelated local edit is preserved while GitHub updates are applied. When the same path changed both locally and remotely, **Pull on open** pauses the entire Pull without changing the local branch or that file. A subsequent **manual Pull** immediately asks whether to **Use GitHub** (replace the phone file), **Keep local** (explicitly prefer the phone copy, which a later manual Push can publish), or cancel (change nothing). **Push** refuses while the local branch remains behind GitHub. The old `alpha.8` behavior could silently fast-forward on automatic Pull and leave stale files; `alpha.9` corrects that. Staged-only local edits are also treated as local changes.
 
 **Push local changes** is deliberate. It:
 1. stops immediately when **Read-only mode** is enabled;

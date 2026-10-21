@@ -525,6 +525,10 @@ export class GitSync {
         await git.checkout({
           fs: this.fs,
           dir: this.dir,
+          // Without an explicit ref isomorphic-git checks out HEAD, which
+          // still points to the OLD commit until the fast-forward completes.
+          // That made UPDATE and Use GitHub silently restore stale contents.
+          ref: target === "after" ? remoteHead : localHead,
           force: true,
           filepaths: checkoutPaths,
         });
@@ -774,8 +778,18 @@ export class GitSync {
       });
       phase("Checking local changes");
       const relation = await this.relation(localHead, remoteHead);
-      const dirty = await this.workingChangedPaths();
-      log(`relation=${relation} localWorkingChanges=${dirty.length}`);
+      // Include staged-only modifications as local changes. Otherwise Pull may
+      // replace the index for a file that was staged but then restored on disk.
+      // Missing sparse files outside the active profile are already filtered.
+      const rows = await this.statusRows();
+      const dirty = rows
+        .filter(([, head, workdir, stage]) => head !== workdir || head !== stage)
+        .map(([filepath]) => filepath);
+      const workingCount = rows.filter(([, head, workdir]) => head !== workdir).length;
+      log(
+        `relation=${relation} localWorkingChanges=${workingCount} ` +
+        `localStagedOnlyChanges=${dirty.length - workingCount}`
+      );
 
       if (relation === "equal") {
         if (dirty.length === 0) {
@@ -846,6 +860,23 @@ export class GitSync {
         `remoteChanges=${remoteChanges.length} profileRemoteChanges=${remoteProfileChanges.size} ` +
         `samePathConflicts=${conflictPaths.length}`
       );
+
+      // Automatic Pull is not authorized to resolve a same-path conflict.
+      // Crucially, do not fast-forward HEAD while preserving an old phone file:
+      // a subsequent Push could then accidentally recommit it over GitHub.
+      // Keep the local branch behind so Push's ancestry guard blocks upload.
+      if (conflictPaths.length > 0 && conflictPolicy === "auto-keep-local") {
+        log(`automatic Pull deferred: same-path conflicts: ${conflictPaths.join(", ")}`);
+        log(`local branch unchanged at ${localHead.slice(0, 8)}; manual Pull required before Push`);
+        return this.result(
+          true,
+          false,
+          `Automatic Pull paused: ${conflictPaths.length} file(s) changed both locally and on GitHub. Run manual Pull to choose a version.`,
+          logs,
+          undefined,
+          conflictPaths
+        );
+      }
 
       if (conflictPaths.length > 0 && conflictPolicy === "prompt") {
         log(`needs conflict decision: ${conflictPaths.join(", ")}`);

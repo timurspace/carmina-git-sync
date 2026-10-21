@@ -107,6 +107,21 @@ async function fixture(t) {
   return { dir, baseline, sync };
 }
 
+// Build a newer remote commit in the same real Git object store, then restore
+// local HEAD and index to the original commit, just like a phone before Pull.
+// No network request is made.
+async function remoteEditAhead(dir, baseline, sync, filepath, remoteContent) {
+  const file = path.join(dir, filepath);
+  await io.writeFile(file, remoteContent);
+  await git.add({ fs, dir, filepath });
+  const remote = await git.commit({ fs, dir, author, message: "newer GitHub version" });
+  await git.writeRef({ fs, dir, ref: "refs/heads/main", value: baseline, force: true });
+  await git.resetIndex({ fs, dir, filepath, ref: baseline });
+  await io.writeFile(file, originals.get(filepath));
+  sync.fetchRemote = async () => remote;
+  return remote;
+}
+
 async function assertPreservedOutside(dir, before, afterCommit) {
   for (const filepath of outside) {
     const b = await git.readBlob({ fs, dir, oid: before, filepath });
@@ -128,6 +143,143 @@ async function assertPreservedOutside(dir, before, afterCommit) {
     assert.equal(row.afterMode, row.beforeMode, `unexpected mode change: ${row.filepath}`);
   }
 }
+
+test("automatic Pull defers same-path conflict without moving HEAD, and Push remains blocked", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nGitHub edit\n");
+  const local = "id: 058\nAndroid edit\n";
+  await io.writeFile(path.join(dir, card), local);
+
+  const automatic = await sync.pullCanonical("auto-keep-local");
+  assert.equal(automatic.success, true, JSON.stringify(automatic));
+  assert.equal(automatic.changed, false);
+  assert.deepEqual(automatic.conflictPaths, [card]);
+  assert.match(automatic.message, /Automatic Pull paused/);
+  assert.match(automatic.logs.join("\n"), /local branch unchanged/);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
+
+  const push = await sync.pushLocalChanges("unsafe Push should stop");
+  assert.equal(push.success, false);
+  assert.match(push.message, /GitHub changed/);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(remotePushCount, 0);
+  assert.notEqual(remote, baseline);
+
+  // A manual Pull must present the conflict immediately on its FIRST attempt,
+  // even if the app already tried an automatic Pull.
+  const manual = await sync.pullCanonical("prompt");
+  assert.equal(manual.success, false);
+  assert.deepEqual(manual.conflictPaths, [card]);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
+});
+
+test("manual Use GitHub resolves the same-path conflict and restores remote content", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remoteText = "id: 058\nGitHub wins\n";
+  const remote = await remoteEditAhead(dir, baseline, sync, card, remoteText);
+  await io.writeFile(path.join(dir, card), "id: 058\nAndroid edit\n");
+  const preview = await sync.pullCanonical("prompt");
+  assert.deepEqual(preview.conflictPaths, [card]);
+
+  const result = await sync.pullCanonical("use-github");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), remote);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), remoteText);
+  const noOpPush = await sync.pushLocalChanges("should be no-op");
+  assert.equal(noOpPush.success, true, JSON.stringify(noOpPush));
+  assert.equal(noOpPush.changed, false);
+  assert.equal(remotePushCount, 0);
+});
+
+test("manual Keep local explicitly resolves conflict and leaves local content to Push", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nGitHub edit\n");
+  const local = "id: 058\nAndroid explicitly retained\n";
+  await io.writeFile(path.join(dir, card), local);
+  const result = await sync.pullCanonical("keep-local");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), remote);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
+  assert.match(result.logs.join("\n"), /KEEP LOCAL/);
+  const push = await sync.pushLocalChanges("confirmed mobile version");
+  assert.equal(push.success, true, JSON.stringify(push));
+  assert.equal(remotePushCount, 1);
+  const newHead = await git.resolveRef({ fs, dir, ref: "main" });
+  assert.notEqual(newHead, remote);
+  const blob = await git.readBlob({ fs, dir, oid: newHead, filepath: card });
+  assert.equal(Buffer.from(blob.blob).toString("utf8"), local);
+  await assertPreservedOutside(dir, baseline, newHead);
+});
+
+test("automatic Pull still applies unrelated remote change without overwriting phone edit", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remoteText = "# New index from GitHub\n";
+  const remote = await remoteEditAhead(dir, baseline, sync, index, remoteText);
+  const phone = "id: 058\nAndroid edit only\n";
+  await io.writeFile(path.join(dir, card), phone);
+  const result = await sync.pullCanonical("auto-keep-local");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.changed, true);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), remote);
+  assert.equal(await io.readFile(path.join(dir, index), "utf8"), remoteText);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), phone);
+  await assertPreservedOutside(dir, baseline, remote);
+});
+
+test("automatic Pull applies a clean remote edit immediately on the first run", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remoteText = "id: 058\nUpdated only in GitHub\n";
+  const remote = await remoteEditAhead(dir, baseline, sync, card, remoteText);
+  const result = await sync.pullCanonical("auto-keep-local");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.changed, true);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), remote);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), remoteText);
+  assert.match(result.logs.join("\n"), /UPDATE/);
+});
+
+test("staged-only same-path edits also block automatic Pull and later Push", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nRemote text\n");
+  const stagedText = "id: 058\nStaged local text\n";
+  await io.writeFile(path.join(dir, card), stagedText);
+  await git.add({ fs, dir, filepath: card });
+  // The working file matches HEAD again, but index contains unique staged data.
+  await io.writeFile(path.join(dir, card), originals.get(card));
+  const result = await sync.pullCanonical("auto-keep-local");
+  assert.equal(result.success, true, JSON.stringify(result));
+  assert.equal(result.changed, false);
+  assert.deepEqual(result.conflictPaths, [card]);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), originals.get(card));
+  const staged = await git.walk({
+    fs, dir, trees: [git.TREE({ ref: baseline }), git.STAGE()],
+    map: async (p, [a, b]) => p === card ? await b?.oid() : undefined,
+  });
+  const stagedOid = staged.filter(Boolean)[0];
+  const expectedStagedOid = await git.hashBlob({ object: stagedText });
+  assert.equal(stagedOid, expectedStagedOid.oid);
+  const push = await sync.pushLocalChanges("must not lose staged edit");
+  assert.equal(push.success, false);
+  assert.equal(remotePushCount, 0);
+  assert.notEqual(remote, baseline);
+});
+
+test("manual cancellation path can safely leave a same-file conflict pending", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const remote = await remoteEditAhead(dir, baseline, sync, card, "id: 058\nRemote version\n");
+  const local = "id: 058\nPhone version\n";
+  await io.writeFile(path.join(dir, card), local);
+  const prompt = await sync.pullCanonical("prompt");
+  assert.equal(prompt.success, false);
+  assert.deepEqual(prompt.conflictPaths, [card]);
+  // The UI's Cancel action intentionally does NOT rerun pullCanonical.
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(await io.readFile(path.join(dir, card), "utf8"), local);
+  assert.notEqual(remote, baseline);
+});
 
 test("mobile Push of one edited card preserves every unmaterialized canonical file", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
