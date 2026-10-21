@@ -147,7 +147,7 @@ Current plugin identity:
 
 - manifest id: `carmina-git-sync`
 - user-facing name: **Carmina Git Sync**
-- manifest version: `0.2.1-alpha.7`
+- manifest version: `0.2.1-alpha.8`
 
 BRAT prereleases contain:
 
@@ -254,3 +254,11 @@ Do not downgrade these workflows to Node 20-targeting action versions. GitHub-ho
 - Allow a safe recovery of legacy out-of-profile index-only Git mode drift when, and only when, the blob OID equals HEAD, restoring the exact HEAD file mode without touching the worktree (#20).
 - Continue blocking all out-of-profile content edits, deletions, additions, and unsafe pre-existing outgoing commits.
 - Nine offline Push tests must pass in CI and release builds. A real Android Push remains an outstanding release acceptance test.
+
+
+## alpha.8 — honest progress feedback (2026-10-21)
+
+- Pull and Push show an **indeterminate** native progress meter immediately beneath the daily action buttons in plugin settings, including screen-reader status text.
+- Actual phase labels are emitted by Pull and Push (GitHub fetch, local checks, staging, commit, validation, upload) without inventing an ETA or completion percentage.
+- Active progress state is cleared on success, failure, cancellation, or when the settings view closes. Repeated taps still cannot start overlapping sync jobs.
+- Ten offline Push regressions, TypeScript checking and production build must pass. Device UI acceptance is still required.
