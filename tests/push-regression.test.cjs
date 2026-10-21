@@ -132,9 +132,24 @@ async function assertPreservedOutside(dir, before, afterCommit) {
 test("mobile Push of one edited card preserves every unmaterialized canonical file", async (t) => {
   const { dir, baseline, sync } = await fixture(t);
   await io.writeFile(path.join(dir, card), "id: 058\nedited card text\n");
-  const result = await sync.pushLocalChanges("single card test");
+  const phases = [];
+  const result = await sync.pushLocalChanges("single card test", (phase) => phases.push(phase));
   assert.equal(result.success, true, result.error || result.message);
   assert.equal(remotePushCount, 1);
+  assert.deepEqual(phases, [
+    "Preparing repository",
+    "Fetching GitHub",
+    "Checking local changes",
+    "Staging 1 local change(s)",
+    "Verifying staged changes",
+    "Creating local commit",
+    "Checking outgoing changes",
+    "Sending changes to GitHub",
+  ]);
+  assert.deepEqual(
+    result.logs.filter((line) => line.startsWith("phase=")),
+    phases.map((phase) => `phase=${phase}`),
+  );
   const head = await git.resolveRef({ fs, dir, ref: "main" });
   assert.notEqual(head, baseline);
   assert.deepEqual((await git.listFiles({ fs, dir, ref: head })).sort(), [...originals.keys()].sort());
@@ -245,6 +260,19 @@ test("remote branch ahead of mobile branch blocks Push without committing", asyn
   assert.match(result.message, /GitHub changed/);
   assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
   assert.equal(remotePushCount, 0);
+});
+
+test("Push progress does not report upload when nothing needs pushing", async (t) => {
+  const { dir, baseline, sync } = await fixture(t);
+  const phases = [];
+  const result = await sync.pushLocalChanges("no change", (phase) => phases.push(phase));
+  assert.equal(result.success, true, result.error || result.message);
+  assert.equal(result.changed, false);
+  assert.equal(await git.resolveRef({ fs, dir, ref: "main" }), baseline);
+  assert.equal(remotePushCount, 0);
+  assert.ok(phases.includes("Fetching GitHub"));
+  assert.ok(phases.includes("Verifying staged changes"));
+  assert.ok(!phases.includes("Sending changes to GitHub"));
 });
 
 test("unmaterialized mobile-excluded files alone do not produce a Push", async (t) => {
